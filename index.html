@@ -13,6 +13,14 @@
       font-family: "Segoe UI", system-ui, sans-serif;
       overflow: hidden;
       height: 100%;
+      /* Stop the browser from hijacking touch drags (scroll / pull-to-refresh)
+         so the game can read joystick/tap gestures. */
+      touch-action: none;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+      position: fixed;
+      width: 100%;
     }
     #game {
       display: flex;
@@ -20,10 +28,13 @@
       align-items: center;
       width: 100vw;
       height: 100vh;
+      touch-action: none;
     }
     canvas {
       box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
       border-radius: 6px;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
     }
   </style>
 </head>
@@ -33,6 +44,6 @@
   <!-- Phaser 3 from CDN (no build step needed) -->
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <!-- Our game (ES modules) -->
-  <script type="module" src="src/main.js"></script>
+  <script type="module" src="src/main.js?v=2"></script>
 </body>
 </html>
