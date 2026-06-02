@@ -43,23 +43,46 @@ Beat the boss before it wipes the party.
 
 ## Run it locally
 
-You need a tiny static web server (ES modules don't load from `file://`).
-Pick whichever you have:
-
 ```bash
-# Option A — npm (uses `serve`)
-npm start
+npm install      # one-time: installs express + socket.io for online mode
+npm start        # runs the server AND serves the client
 # then open http://localhost:8080
-
-# Option B — Python 3
-python3 -m http.server 8080
-# then open http://localhost:8080
-
-# Option C — VS Code
-# Use the "Live Server" extension and open index.html
 ```
 
-Phaser itself is loaded from a CDN, so there's **no build step**.
+`npm start` launches the Node server (`server/index.js`), which both serves the
+static client **and** hosts the real-time multiplayer. Phaser and Socket.io are
+loaded from CDNs, so there's still **no build step**.
+
+Solo play needs no server at all — any static host works (`npm run static`,
+`python3 -m http.server 8080`, VS Code Live Server, or GitHub Pages).
+
+Smoke-test the server (boots it, connects two clients, fights the boss):
+
+```bash
+npm test
+```
+
+---
+
+## Multiplayer (online co-op)
+
+- Pick a class, then on the mode screen choose **Create Party** (you get a
+  4-letter code) or **Join Party** (enter a friend's code).
+- Party members drop into the **Boss Lair** together and fight the Colossus in
+  real time. The **server is authoritative** for all combat — movement, damage,
+  aggro, and telegraphs are decided server-side, so state stays in sync and
+  clients can't fake damage. The client runs light prediction so your own
+  movement still feels instant.
+- **Solo still works fully offline** (all zones, mobs, leveling, classes) on a
+  completely separate code path.
+
+### Hosting the server elsewhere
+
+`npm start` is fine for LAN/local play. To play over the internet, deploy
+`server/` to any Node host (Render, Railway, Fly.io, a VPS …) and point the
+client at it with `?server=https://your-host` on the page URL (or set
+`localStorage.mng_server`). GitHub Pages can host the **client** but not the
+server.
 
 ---
 
@@ -67,24 +90,39 @@ Phaser itself is loaded from a CDN, so there's **no build step**.
 
 ```
 MyNewGame/
-├── index.html              # entry: loads Phaser (CDN) + the game
+├── index.html              # entry: loads Phaser + Socket.io (CDN) + the game
 ├── package.json
-├── README.md
-└── src/
+├── server/                 # authoritative Node.js + Socket.io backend
+│   ├── index.js            # express static host + socket.io wiring
+│   ├── RoomManager.js      # parties by invite code -> one Room each
+│   ├── Room.js             # per-party world: 30Hz tick, broadcasts snapshots
+│   ├── smoke-test.mjs      # headless 2-client integration test (npm test)
+│   └── sim/                # headless (no-Phaser) authoritative simulation
+│       ├── Boss.js         # boss state machine (cleave + ground AoE)
+│       ├── ServerPlayer.js # player state, movement, damage rolls
+│       ├── AggroTable.js   # threat -> boss target
+│       ├── skills.js       # server-side skill engine (mirrors the client)
+│       └── mathutil.js
+└── src/                    # client (Phaser). Shared data is imported by server.
     ├── main.js             # Phaser config + boot
     ├── config.js           # tuning: arena, colors, threat values, stat presets
-    ├── stats.js            # STR/DEX/INT/VIT/AGI -> derived combat stats
-    ├── entities/
-    │   ├── Player.js       # the Tank (movement, attacks, skills, HP)
-    │   ├── Boss.js         # state machine + telegraphed cleave & ground AoE
-    │   └── Ally.js         # AI Mage (ranged, stays behind boss, dodges)
-    ├── systems/
-    │   └── AggroTable.js   # threat tracking -> boss target selection
-    ├── ui/
-    │   └── HealthBar.js
+    ├── stats.js            # STR/DEX/INT/VIT/AGI -> derived combat stats  (shared)
+    ├── classes/classes.js  # 6 classes + data-driven skills              (shared)
+    ├── world/zones.js      # zones + mob archetypes                       (shared)
+    ├── net/NetClient.js    # socket.io client wrapper (online mode only)
+    ├── entities/           # Player, Boss, Ally, Mob, Minion (solo sim)
+    ├── systems/            # AggroTable, Progression (solo sim)
+    ├── ui/HealthBar.js
     └── scenes/
-        └── GameScene.js    # coordinator: input, combat, skills, HUD
+        ├── ClassSelectScene.js
+        ├── LobbyScene.js   # solo vs online; create/join party
+        ├── GameScene.js    # solo: zones, mobs, leveling, boss
+        └── OnlineScene.js  # online: renders authoritative server snapshots
 ```
+
+The four **shared** data modules (`config`, `stats`, `classes`, `zones`) are
+plain data/math with no Phaser dependency, so the headless server imports them
+directly — one source of truth for both sides.
 
 ---
 
@@ -92,10 +130,12 @@ MyNewGame/
 
 - **Stage 1 (done):** single-player Tank + AI Mage vs. one boss with two
   telegraphed mechanics and an aggro system.
-- **Stage 2:** classes (Warrior, Mage, Rogue, Archer, Healer, Necromancer),
-  skill trees, and loot.
-- **Stage 3:** real multiplayer parties over **Node.js + Socket.io** — invite
-  friends and fight together.
+- **Stage 2 (done):** zone-based open world, mobs, XP/leveling, stat points.
+- **Stage 3 (done):** six-class system with data-driven skills.
+- **Stage 4 (in progress):** real-time multiplayer parties over
+  **Node.js + Socket.io** — authoritative server, invite codes, co-op boss.
+  Next: extend the authoritative model to all zones + mobs, party loot, and
+  client-side hosting on the cloud.
 
 ## Tuning
 
