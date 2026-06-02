@@ -1,4 +1,5 @@
 import { CONFIG } from './config.js';
+import ClassSelectScene from './scenes/ClassSelectScene.js';
 import GameScene from './scenes/GameScene.js';
 
 // Phaser is loaded globally from the CDN <script> in index.html.
@@ -16,7 +17,7 @@ const config = {
     pixelArt: false,
     antialias: true,
   },
-  scene: [GameScene],
+  scene: [ClassSelectScene, GameScene],
 };
 
 // eslint-disable-next-line no-new
