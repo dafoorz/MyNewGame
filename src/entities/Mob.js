@@ -90,13 +90,14 @@ export default class Mob {
     const dist = Math.hypot(p.x - this.x, p.y - this.y);
     this.facing = Math.atan2(p.y - this.y, p.x - this.x);
 
-    if (!p.alive) this.engaged = false;
+    const visible = p.alive && !p.stealth; // can't see / chase a stealthed player
+    if (!visible) this.engaged = false;
 
     // Engage when the player is in range (or stay engaged once provoked).
-    if (p.alive && dist <= this.aggroRange) this.engaged = true;
+    if (visible && dist <= this.aggroRange) this.engaged = true;
     if (dist > this.leashRange) this.engaged = false;
 
-    if (this.engaged && p.alive) {
+    if (this.engaged && visible) {
       if (this.kind === 'ranged') this.rangedBehavior(dt, ctx, dist);
       else this.meleeBehavior(dt, ctx, dist, p);
     } else {

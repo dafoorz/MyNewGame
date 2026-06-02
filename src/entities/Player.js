@@ -30,6 +30,14 @@ export default class Player {
     this.shieldTimer = 0;
     this.hitFlash = 0;
 
+    // Class buffs / states.
+    this.damageMult = 1;     // temporary outgoing-damage buff
+    this.speedMult = 1;      // temporary move-speed buff
+    this.buffTimer = 0;
+    this.stealth = false;    // mobs won't aggro while stealthed
+    this.stealthTimer = 0;
+    this.nextHitCrit = 0;    // if >0, next damaging hit is a guaranteed crit at this multiplier
+
     // Skill cooldowns (seconds remaining), keyed by slot 1-4.
     this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
@@ -81,11 +89,30 @@ export default class Player {
     this.shieldTimer = seconds;
   }
 
+  heal(amount) {
+    if (!this.alive) return 0;
+    const before = this.hp;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    return Math.round(this.hp - before);
+  }
+
+  applyBuff({ damageMult = 1, speedMult = 1, duration }) {
+    this.damageMult = damageMult;
+    this.speedMult = speedMult;
+    this.buffTimer = duration;
+  }
+
+  applyStealth(duration, critMult) {
+    this.stealth = true;
+    this.stealthTimer = duration;
+    this.nextHitCrit = critMult;
+  }
+
   // --- per-frame ---
 
   moveBy(dx, dy, dt) {
     if (!this.alive) return;
-    const speed = this.stats.moveSpeed;
+    const speed = this.stats.moveSpeed * this.speedMult;
     let nx = this.x + dx * speed * dt;
     let ny = this.y + dy * speed * dt;
     const a = this.bounds;
@@ -120,6 +147,14 @@ export default class Player {
       this.shieldTimer -= dt;
       if (this.shieldTimer <= 0) this.damageReduction = 0;
     }
+    if (this.buffTimer > 0) {
+      this.buffTimer -= dt;
+      if (this.buffTimer <= 0) { this.damageMult = 1; this.speedMult = 1; }
+    }
+    if (this.stealthTimer > 0) {
+      this.stealthTimer -= dt;
+      if (this.stealthTimer <= 0) this.stealth = false;
+    }
     this.draw();
   }
 
@@ -138,10 +173,16 @@ export default class Player {
       return;
     }
 
-    // Body (flash white briefly when hit).
+    // Body (flash white briefly when hit; translucent while stealthed).
     const bodyColor = this.hitFlash > 0 ? 0xffffff : this.color;
-    g.fillStyle(bodyColor, 1);
+    g.fillStyle(bodyColor, this.stealth ? 0.35 : 1);
     g.fillCircle(this.x, this.y, this.radius);
+
+    // Buff aura.
+    if (this.buffTimer > 0) {
+      g.lineStyle(2, 0xffe066, 0.7);
+      g.strokeCircle(this.x, this.y, this.radius + 9);
+    }
     g.lineStyle(2, 0xffffff, 0.9);
     g.strokeCircle(this.x, this.y, this.radius);
 

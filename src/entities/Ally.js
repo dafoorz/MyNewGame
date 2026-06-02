@@ -106,8 +106,9 @@ export default class Ally extends Player {
     if (this.attackTimer > 0) return;
     const dist = Math.hypot(ctx.boss.x - this.x, ctx.boss.y - this.y);
     if (dist <= this.attackRange) {
-      const { amount, crit } = this.stats.roll(this.stats.magPower);
-      ctx.onCast(amount, crit);
+      const rolled = this.stats.roll(this.stats.magPower);
+      const amount = Math.round(rolled.amount * this.damageMult);
+      ctx.onCast(amount, rolled.crit);
       this.attackTimer = this.stats.attackInterval;
       this.boltFlash = 0.12;
     }
