@@ -1,0 +1,17 @@
+{
+  "name": "mynewgame",
+  "version": "0.1.0",
+  "description": "2D top-down co-op boss-fight game (Blade & Soul inspired). Stage 1: single player Tank vs Boss with an AI mage ally.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve . -l 8080",
+    "dev": "npx --yes serve . -l 8080"
+  },
+  "keywords": [
+    "game",
+    "phaser",
+    "boss-fight",
+    "coop"
+  ],
+  "license": "MIT"
+}

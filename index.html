@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyNewGame — Boss Fight (Stage 1)</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0d0d18;
+      color: #cdd2e0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+      height: 100%;
+    }
+    #game {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100vw;
+      height: 100vh;
+    }
+    canvas {
+      box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- Phaser 3 from CDN (no build step needed) -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <!-- Our game (ES modules) -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
