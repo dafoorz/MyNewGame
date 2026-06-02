@@ -14,18 +14,18 @@ const STATE = { IDLE: 'idle', WINDUP: 'windup', RECOVER: 'recover' };
 const ATTACKS = {
   cleave: {
     name: 'cleave',
-    windup: 1.0,
-    recover: 0.8,
-    range: 175,
-    halfAngle: Phaser.Math.DegToRad(55),
-    damage: 80,
+    windup: 0.75,
+    recover: 0.6,
+    range: 190,
+    halfAngle: Phaser.Math.DegToRad(60),
+    damage: 130,
   },
   aoe: {
     name: 'aoe',
-    windup: 1.35,
-    recover: 0.9,
-    radius: 95,
-    damage: 110,
+    windup: 1.1,
+    recover: 0.7,
+    radius: 105,
+    damage: 160,
   },
 };
 
@@ -38,11 +38,11 @@ export default class Boss {
     this.radius = 46;
     this.facing = Math.PI / 2;
 
-    this.maxHp = opts.maxHp ?? 2800;
+    this.maxHp = opts.maxHp ?? 5000;
     this.hp = this.maxHp;
     this.alive = true;
 
-    this.speed = 78;
+    this.speed = 95;
     this.meleeBand = 130; // tries to close to within this distance of its target
 
     this.target = null;
@@ -205,7 +205,7 @@ export default class Boss {
     if (this.stateTimer <= 0) {
       this.state = STATE.IDLE;
       this.attack = null;
-      this.globalCd = 1.4 + Math.random() * 1.0;
+      this.globalCd = 0.6 + Math.random() * 0.6;
     }
   }
 

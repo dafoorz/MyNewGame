@@ -191,9 +191,42 @@ export default class GameScene extends Phaser.Scene {
   basicAttack() {
     if (!this.tank.canBasicAttack()) return;
     this.tank.startBasicCooldown();
-    if (!this.inMeleeRange()) return; // swing whiffs if out of range
+    this.spawnSwingArc(this.tank);
+    if (!this.inMeleeRange()) return;
     const { amount, crit } = this.tank.stats.roll(this.tank.stats.physPower);
     this.dealToBoss(amount, 1, this.tank, crit);
+  }
+
+  spawnSwingArc(player) {
+    const gfx = this.add.graphics().setDepth(15);
+    const cx = player.x;
+    const cy = player.y;
+    const facing = player.facing;
+    const R = player.attackRange;
+    const half = Math.PI * 0.38;
+    let t = 0;
+
+    const ev = this.time.addEvent({
+      delay: 14,
+      loop: true,
+      callback: () => {
+        t += 14;
+        const progress = t / 180;
+        const alpha = (1 - progress) * 0.9;
+        gfx.clear();
+        gfx.lineStyle(5, 0xffeedd, alpha);
+        gfx.beginPath();
+        const steps = 12;
+        for (let i = 0; i <= steps; i++) {
+          const a = facing - half + (half * 2 * i) / steps;
+          const px = cx + Math.cos(a) * R;
+          const py = cy + Math.sin(a) * R;
+          i === 0 ? gfx.moveTo(px, py) : gfx.lineTo(px, py);
+        }
+        gfx.strokePath();
+        if (t >= 180) { gfx.destroy(); ev.remove(); }
+      },
+    });
   }
 
   useSkill(slot) {
