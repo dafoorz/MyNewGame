@@ -17,6 +17,7 @@ export default class Player {
     this.x = x;
     this.y = y;
     this.facing = -Math.PI / 2; // pointing "up" initially
+    this.bounds = opts.bounds ?? CONFIG.arena; // movement clamp (set per zone)
 
     this.maxHp = stats.maxHp;
     this.hp = this.maxHp;
@@ -87,11 +88,26 @@ export default class Player {
     const speed = this.stats.moveSpeed;
     let nx = this.x + dx * speed * dt;
     let ny = this.y + dy * speed * dt;
-    const a = CONFIG.arena;
+    const a = this.bounds;
     nx = Phaser.Math.Clamp(nx, a.x + this.radius, a.x + a.w - this.radius);
     ny = Phaser.Math.Clamp(ny, a.y + this.radius, a.y + a.h - this.radius);
     this.x = nx;
     this.y = ny;
+  }
+
+  // Recompute derived stats after spending points (e.g. VIT raises max HP).
+  recalc() {
+    const newMax = this.stats.maxHp;
+    const delta = newMax - this.maxHp;
+    this.maxHp = newMax;
+    if (delta > 0) this.hp += delta;
+    this.hp = Math.min(this.hp, this.maxHp);
+  }
+
+  destroy() {
+    this.gfx.destroy();
+    this.label.destroy();
+    this.hpBar.destroy();
   }
 
   update(dt) {
