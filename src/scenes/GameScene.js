@@ -266,6 +266,22 @@ export default class GameScene extends Phaser.Scene {
     return this.nearestEnemyTo(this.player.x, this.player.y, max);
   }
 
+  // What a mob should attack: the player (if visible) or the nearest minion.
+  // Minions act as decoys, so a mob locks onto whichever is closest.
+  mobTarget(mob) {
+    let best = null, bd = Infinity;
+    if (this.player.alive && !this.player.stealth) {
+      best = this.player;
+      bd = Math.hypot(this.player.x - mob.x, this.player.y - mob.y);
+    }
+    for (const mn of this.minions) {
+      if (!mn.alive) continue;
+      const d = Math.hypot(mn.x - mob.x, mn.y - mob.y);
+      if (d < bd) { bd = d; best = mn; }
+    }
+    return best;
+  }
+
   // Roll outgoing player damage, honoring crit / buffs / guaranteed-crit states.
   playerRoll(stat, mult, forceCrit = false) {
     const s = this.player.stats;
@@ -279,10 +295,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // Low-level: apply a fixed damage number to any enemy (also feeds boss aggro).
-  damageEnemy(enemy, amount, crit, threatMult = 1) {
+  // `source` is the attacker credited with threat (defaults to the player).
+  damageEnemy(enemy, amount, crit, threatMult = 1, source = this.player) {
     if (enemy === this.boss) {
       this.boss.takeDamage(amount);
-      this.aggro.add(this.player, amount * this.player.threatMultiplier * threatMult);
+      this.aggro.add(source, amount * (source.threatMultiplier || 1) * threatMult);
     } else {
       enemy.takeDamage(amount);
     }
@@ -411,7 +428,10 @@ export default class GameScene extends Phaser.Scene {
         const hp = Math.round(30 + this.progression.level * 8 + this.player.stats.INT * 2);
         for (let i = 0; i < def.count; i++) {
           const ang = Math.random() * Math.PI * 2;
-          this.minions.push(new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds));
+          const mn = new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds);
+          mn.threatMultiplier = 1.5; // minions pull threat well so they soak hits
+          if (this.boss) this.aggro.register(mn);
+          this.minions.push(mn);
         }
         this.spawnText(this.player.x, this.player.y - 30, 'RISE!', '#a4f06c');
         break;
@@ -580,15 +600,10 @@ export default class GameScene extends Phaser.Scene {
 
     const mobCtx = {
       player: this.player,
-      onMelee: (mob) => {
-        const dealt = this.player.takeDamage(mob.damage);
-        this.spawnText(this.player.x, this.player.y - this.player.radius - 4, dealt, '#ff6b6b');
-        for (const mn of this.minions) {
-          if (mn.alive && Math.hypot(mn.x - mob.x, mn.y - mob.y) <= mob.radius + mn.radius + 20) {
-            mn.takeDamage(mob.damage);
-            this.spawnText(mn.x, mn.y - mn.radius - 4, mob.damage, '#ff6b6b');
-          }
-        }
+      getTarget: (mob) => this.mobTarget(mob),
+      onMelee: (mob, target) => {
+        const dealt = target.takeDamage(mob.damage);
+        this.spawnText(target.x, target.y - target.radius - 4, dealt, '#ff6b6b');
       },
       fireProjectile: (fx, fy, tx, ty, dmg, sp) => this.fireProjectile(fx, fy, tx, ty, dmg, sp),
     };
@@ -597,10 +612,10 @@ export default class GameScene extends Phaser.Scene {
     const minionCtx = {
       player: this.player,
       nearestEnemyTo: (x, y, max) => this.nearestEnemyTo(x, y, max),
-      applyHit: (e, amt, crit) => this.damageEnemy(e, amt, crit),
+      applyHit: (src, e, amt, crit) => this.damageEnemy(e, amt, crit, 1, src),
     };
     for (const mn of this.minions) mn.update(dt, minionCtx);
-    this.minions = this.minions.filter((mn) => { if (!mn.alive) { mn.destroy(); return false; } return true; });
+    this.minions = this.minions.filter((mn) => { if (!mn.alive) { this.aggro.remove(mn); mn.destroy(); return false; } return true; });
 
     this.updateProjectiles(dt);
     this.updateDots(dt);
@@ -617,7 +632,7 @@ export default class GameScene extends Phaser.Scene {
       });
       const wasAlive = this.boss.alive;
       this.boss.update(dt, {
-        players: [this.player, this.mage],
+        players: [this.player, this.mage, ...this.minions.filter((mn) => mn.alive)],
         aggro: this.aggro,
         onHit: (pl, amount) => {
           const dealt = pl.takeDamage(amount);

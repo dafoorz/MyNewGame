@@ -81,25 +81,27 @@ export default class Mob {
     this.clampToBounds();
   }
 
-  // ctx = { player, fireProjectile(fromX, fromY, tx, ty, dmg, speed), onMelee(mob) }
+  // ctx = { player, getTarget(mob), fireProjectile(fromX, fromY, tx, ty, dmg, speed), onMelee(mob, target) }
   update(dt, ctx) {
     if (this.attackTimer > 0) this.attackTimer -= dt;
     if (this.hitFlash > 0) this.hitFlash -= dt;
 
+    // Pick whatever's nearest and attackable: the player, or a summoned minion
+    // standing in for them (so minions soak aggro / draw mobs off the player).
+    const target = ctx.getTarget(this);
     const p = ctx.player;
-    const dist = Math.hypot(p.x - this.x, p.y - this.y);
-    this.facing = Math.atan2(p.y - this.y, p.x - this.x);
+    const pdist = Math.hypot(p.x - this.x, p.y - this.y);
+    const playerVisible = p.alive && !p.stealth;
 
-    const visible = p.alive && !p.stealth; // can't see / chase a stealthed player
-    if (!visible) this.engaged = false;
+    if (playerVisible && pdist <= this.aggroRange) this.engaged = true;
+    if (target && Math.hypot(target.x - this.x, target.y - this.y) <= this.aggroRange) this.engaged = true;
+    if (pdist > this.leashRange && !target) this.engaged = false;
 
-    // Engage when the player is in range (or stay engaged once provoked).
-    if (visible && dist <= this.aggroRange) this.engaged = true;
-    if (dist > this.leashRange) this.engaged = false;
-
-    if (this.engaged && visible) {
-      if (this.kind === 'ranged') this.rangedBehavior(dt, ctx, dist);
-      else this.meleeBehavior(dt, ctx, dist, p);
+    if (this.engaged && target) {
+      this.facing = Math.atan2(target.y - this.y, target.x - this.x);
+      const dist = Math.hypot(target.x - this.x, target.y - this.y);
+      if (this.kind === 'ranged') this.rangedBehavior(dt, ctx, dist, target);
+      else this.meleeBehavior(dt, ctx, dist, target);
     } else {
       // Return home.
       const dHome = Math.hypot(this.spawnX - this.x, this.spawnY - this.y);
@@ -109,25 +111,24 @@ export default class Mob {
     this.draw();
   }
 
-  meleeBehavior(dt, ctx, dist, p) {
-    const reach = this.attackReach + this.radius + p.radius;
+  meleeBehavior(dt, ctx, dist, target) {
+    const reach = this.attackReach + this.radius + target.radius;
     if (dist > reach) {
-      this.moveToward(p.x, p.y, dt);
+      this.moveToward(target.x, target.y, dt);
     } else if (this.attackTimer <= 0) {
-      ctx.onMelee(this);
+      ctx.onMelee(this, target);
       this.attackTimer = this.attackCd;
     }
   }
 
-  rangedBehavior(dt, ctx, dist) {
-    const p = ctx.player;
+  rangedBehavior(dt, ctx, dist, target) {
     if (dist < this.preferred - 30) {
-      this.moveToward(p.x, p.y, dt, -1); // back away
+      this.moveToward(target.x, target.y, dt, -1); // back away
     } else if (dist > this.preferred + 50) {
-      this.moveToward(p.x, p.y, dt); // close in
+      this.moveToward(target.x, target.y, dt); // close in
     }
     if (dist <= this.attackRange && this.attackTimer <= 0) {
-      ctx.fireProjectile(this.x, this.y, p.x, p.y, this.damage, this.projSpeed);
+      ctx.fireProjectile(this.x, this.y, target.x, target.y, this.damage, this.projSpeed);
       this.attackTimer = this.attackCd;
     }
   }
