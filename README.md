@@ -3,8 +3,11 @@
 A 2D top-down co-op boss-fight game for the browser, inspired by *Blade & Soul*.
 Built with [Phaser 3](https://phaser.io/) (HTML5 Canvas + JavaScript).
 
-> **Status: Stage 1 — single player.** You control a **Tank** fighting one boss
-> alongside one AI **Mage** ally. Multiplayer and classes come in later stages.
+> **Status: Stage 2 — open world.** Roam connected zones (Town → Forest →
+> Caves → Boss Lair), kill scaling mobs for XP, level up and spend stat points.
+> The Stage 1 telegraphed boss + AI Mage ally now live in the Boss Lair zone.
+> Press **C** (or the C button) to open the character/stat panel.
+> Add zones & mob types in `src/world/zones.js`.
 
 ---
 

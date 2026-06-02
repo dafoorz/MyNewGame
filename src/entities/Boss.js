@@ -43,7 +43,8 @@ export default class Boss {
     this.alive = true;
 
     this.speed = 95;
-    this.meleeBand = 130; // tries to close to within this distance of its target
+    this.meleeBand = 130;
+    this.bounds = opts.bounds ?? CONFIG.arena; // movement clamp (set per zone)
 
     this.target = null;
     this.state = STATE.IDLE;
@@ -219,7 +220,7 @@ export default class Boss {
     const ang = Math.atan2(ty - this.y, tx - this.x);
     let nx = this.x + Math.cos(ang) * this.speed * dt;
     let ny = this.y + Math.sin(ang) * this.speed * dt;
-    const a = CONFIG.arena;
+    const a = this.bounds;
     nx = Phaser.Math.Clamp(nx, a.x + this.radius, a.x + a.w - this.radius);
     ny = Phaser.Math.Clamp(ny, a.y + this.radius, a.y + a.h - this.radius);
     this.x = nx;
@@ -286,5 +287,13 @@ export default class Boss {
   updateHud() {
     this.hpBar.setValue(this.hp / this.maxHp);
     this.hpText.setText(`${Math.ceil(this.hp)} / ${this.maxHp}`);
+  }
+
+  destroy() {
+    this.telegraphGfx.destroy();
+    this.gfx.destroy();
+    this.hpBar.destroy();
+    this.hpText.destroy();
+    this.nameText.destroy();
   }
 }

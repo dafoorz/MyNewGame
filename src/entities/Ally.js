@@ -23,6 +23,11 @@ export default class Ally extends Player {
     this.boltFlash = 0;
   }
 
+  destroy() {
+    super.destroy();
+    this.boltGfx.destroy();
+  }
+
   // ctx = { boss, telegraph, onCast(damage) }
   aiUpdate(dt, ctx) {
     if (this.attackTimer > 0) this.attackTimer -= dt;
@@ -91,7 +96,7 @@ export default class Ally extends Player {
       const ease = Math.min(1, dist / 120);
       this.x += Math.cos(ang) * this.stats.moveSpeed * 0.7 * ease * dt;
       this.y += Math.sin(ang) * this.stats.moveSpeed * 0.7 * ease * dt;
-      const a = CONFIG.arena;
+      const a = this.bounds;
       this.x = Phaser.Math.Clamp(this.x, a.x + this.radius, a.x + a.w - this.radius);
       this.y = Phaser.Math.Clamp(this.y, a.y + this.radius, a.y + a.h - this.radius);
     }
