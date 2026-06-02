@@ -21,9 +21,10 @@ export default class Minion {
   }
 
   takeDamage(amount) {
-    if (!this.alive) return;
+    if (!this.alive) return 0;
     this.hp = Math.max(0, this.hp - amount);
     if (this.hp <= 0) this.alive = false;
+    return amount;
   }
 
   // ctx = { player, nearestEnemyTo(x, y, max), applyHit(enemy, amount, crit) }
@@ -40,7 +41,7 @@ export default class Minion {
         this.x += Math.cos(this.facing) * this.speed * dt;
         this.y += Math.sin(this.facing) * this.speed * dt;
       } else if (this.attackTimer <= 0) {
-        ctx.applyHit(target, this.damage, false);
+        ctx.applyHit(this, target, this.damage, false);
         this.attackTimer = this.attackCd;
       }
     } else {
