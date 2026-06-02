@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "description": "2D top-down co-op boss-fight game (Blade & Soul inspired). Solo play + real-time online party boss fights.",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server/index.js",
     "server": "node server/index.js",
