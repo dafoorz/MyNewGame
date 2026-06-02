@@ -266,20 +266,19 @@ export default class GameScene extends Phaser.Scene {
     return this.nearestEnemyTo(this.player.x, this.player.y, max);
   }
 
-  // What a mob should attack: the player (if visible) or the nearest minion.
-  // Minions act as decoys, so a mob locks onto whichever is closest.
+  // What a mob should attack. Minions act as taunting pets: if any minion is
+  // within reach, the mob prefers it over the player. Only when no minion is
+  // around (or the player isn't a valid target) does it fall back.
   mobTarget(mob) {
-    let best = null, bd = Infinity;
-    if (this.player.alive && !this.player.stealth) {
-      best = this.player;
-      bd = Math.hypot(this.player.x - mob.x, this.player.y - mob.y);
-    }
+    let bestMinion = null, bd = Infinity;
     for (const mn of this.minions) {
       if (!mn.alive) continue;
       const d = Math.hypot(mn.x - mob.x, mn.y - mob.y);
-      if (d < bd) { bd = d; best = mn; }
+      if (d < bd) { bd = d; bestMinion = mn; }
     }
-    return best;
+    if (bestMinion && bd <= mob.leashRange) return bestMinion;
+    if (this.player.alive && !this.player.stealth) return this.player;
+    return bestMinion;
   }
 
   // Roll outgoing player damage, honoring crit / buffs / guaranteed-crit states.
