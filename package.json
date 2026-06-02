@@ -1,17 +1,28 @@
 {
   "name": "mynewgame",
-  "version": "0.1.0",
-  "description": "2D top-down co-op boss-fight game (Blade & Soul inspired). Stage 1: single player Tank vs Boss with an AI mage ally.",
+  "version": "0.2.0",
+  "description": "2D top-down co-op boss-fight game (Blade & Soul inspired). Solo play + real-time online party boss fights.",
   "type": "module",
   "scripts": {
-    "start": "npx --yes serve . -l 8080",
-    "dev": "npx --yes serve . -l 8080"
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "static": "npx --yes serve . -l 8080",
+    "test": "node server/smoke-test.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
   },
   "keywords": [
     "game",
     "phaser",
     "boss-fight",
-    "coop"
+    "coop",
+    "multiplayer",
+    "socket.io"
   ],
   "license": "MIT"
 }

@@ -62,6 +62,6 @@ export default class ClassSelectScene extends Phaser.Scene {
 
     card.on('pointerover', () => card.setStrokeStyle(4, 0xffffff));
     card.on('pointerout', () => card.setStrokeStyle(3, def.color));
-    card.on('pointerdown', () => this.scene.start('GameScene', { classKey: key }));
+    card.on('pointerdown', () => this.scene.start('LobbyScene', { classKey: key }));
   }
 }
