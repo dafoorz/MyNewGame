@@ -52,6 +52,7 @@ export default class GameScene extends Phaser.Scene {
     this.aggro = new AggroTable();
     this.portalSprites = [];
     this.respawnToken = 0;
+    this.autoAim = false;
 
     this.zoneGfx = this.add.graphics().setDepth(-1);
     this.portalGfx = this.add.graphics().setDepth(1);
@@ -215,6 +216,7 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.attackBtn && Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) return true;
     if (this.charBtn && Math.hypot(p.x - this.charBtn.x, p.y - this.charBtn.y) <= this.charBtn.r) return true;
+    if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     return false;
   }
 
@@ -406,9 +408,10 @@ export default class GameScene extends Phaser.Scene {
       }
       case 'summon': {
         const dmg = Math.round(6 + this.progression.level * 3 + this.player.stats.INT * 0.5);
+        const hp = Math.round(30 + this.progression.level * 8 + this.player.stats.INT * 2);
         for (let i = 0; i < def.count; i++) {
           const ang = Math.random() * Math.PI * 2;
-          this.minions.push(new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, def.duration, this.bounds));
+          this.minions.push(new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds));
         }
         this.spawnText(this.player.x, this.player.y - 30, 'RISE!', '#a4f06c');
         break;
@@ -507,6 +510,16 @@ export default class GameScene extends Phaser.Scene {
           this.spawnText(this.player.x, this.player.y - this.player.radius - 4, dealt, '#ff6b6b');
           continue;
         }
+        let hitMinion = false;
+        for (const mn of this.minions) {
+          if (mn.alive && Math.hypot(pr.x - mn.x, pr.y - mn.y) <= mn.radius + pr.r) {
+            mn.takeDamage(pr.dmg);
+            this.spawnText(mn.x, mn.y - mn.radius - 4, pr.dmg, '#ff6b6b');
+            hitMinion = true;
+            break;
+          }
+        }
+        if (hitMinion) continue;
       }
       g.fillStyle(pr.color, 1);
       g.fillCircle(pr.x, pr.y, pr.r);
@@ -551,9 +564,13 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    if (this.isTouch) {
+    if (this.autoAim) {
       const e = this.nearestEnemy();
       if (e) this.player.facing = Math.atan2(e.y - this.player.y, e.x - this.player.x);
+    } else if (this.isTouch) {
+      if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
+        this.player.facing = Math.atan2(this.move.y, this.move.x);
+      }
     } else {
       const p = this.input.activePointer;
       this.player.facing = Math.atan2(p.worldY - this.player.y, p.worldX - this.player.x);
@@ -566,6 +583,12 @@ export default class GameScene extends Phaser.Scene {
       onMelee: (mob) => {
         const dealt = this.player.takeDamage(mob.damage);
         this.spawnText(this.player.x, this.player.y - this.player.radius - 4, dealt, '#ff6b6b');
+        for (const mn of this.minions) {
+          if (mn.alive && Math.hypot(mn.x - mob.x, mn.y - mob.y) <= mob.radius + mn.radius + 20) {
+            mn.takeDamage(mob.damage);
+            this.spawnText(mn.x, mn.y - mn.radius - 4, mob.damage, '#ff6b6b');
+          }
+        }
       },
       fireProjectile: (fx, fy, tx, ty, dmg, sp) => this.fireProjectile(fx, fy, tx, ty, dmg, sp),
     };
@@ -686,6 +709,15 @@ export default class GameScene extends Phaser.Scene {
     cbtn.on('pointerdown', () => this.toggleCharPanel());
     this.charBtn = { x: ccx, y: ccy, r: 22 };
 
+    const aimX = CONFIG.width - 44, aimY = 80;
+    const aimBg = this.add.circle(aimX, aimY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.aimText = this.add.text(aimX, aimY, 'AIM', {
+      fontFamily: 'Segoe UI', fontSize: '10px', fontStyle: 'bold', color: '#6cd0ff',
+    }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    aimBg.on('pointerdown', () => this.toggleAutoAim());
+    this.aimBtn = { x: aimX, y: aimY, r: 22 };
+
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
     const btn = this.add.circle(ax, ay, 46, this.classDef.color, 0.9).setStrokeStyle(3, 0xffffff, 0.85)
@@ -726,6 +758,12 @@ export default class GameScene extends Phaser.Scene {
       fontFamily: 'Segoe UI', fontSize: '11px', color: '#8b93ad',
     }).setOrigin(0.5).setScrollFactor(0));
     this.charPanel = panel;
+  }
+
+  toggleAutoAim() {
+    this.autoAim = !this.autoAim;
+    this.aimText.setColor(this.autoAim ? '#ffe066' : '#6cd0ff');
+    this.aimText.setText(this.autoAim ? 'AUTO' : 'AIM');
   }
 
   toggleCharPanel() {
