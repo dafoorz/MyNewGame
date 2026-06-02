@@ -76,13 +76,31 @@ npm test
 - **Solo still works fully offline** (all zones, mobs, leveling, classes) on a
   completely separate code path.
 
-### Hosting the server elsewhere
+### Play with friends over the internet (deploy to Render)
 
-`npm start` is fine for LAN/local play. To play over the internet, deploy
-`server/` to any Node host (Render, Railway, Fly.io, a VPS …) and point the
-client at it with `?server=https://your-host` on the page URL (or set
-`localStorage.mng_server`). GitHub Pages can host the **client** but not the
-server.
+The Node server serves the client **and** the multiplayer on one port, so a
+single deploy gives you one URL everyone opens — no GitHub Pages needed.
+
+This repo includes a `render.yaml` blueprint, so setup is near one-click:
+
+1. Push to GitHub (already connected).
+2. Go to [render.com](https://render.com) → **New +** → **Blueprint** → pick
+   `dafoorz/mynewgame`. Render reads `render.yaml` (build `npm install`, start
+   `npm start`, free plan, health check `/health`).
+3. Click **Apply**. You get a URL like `https://mynewgame.onrender.com`.
+4. Share it. Everyone picks a class → **Create/Join Party**.
+
+> Render's **free** tier sleeps after ~15 min idle, so the first visit after a
+> break takes ~30s to wake — normal, just wait. Upgrade the plan to keep it warm.
+
+**Quick one-off session (no deploy):** run `npm start` locally and expose it with
+a tunnel — `npx cloudflared tunnel --url http://localhost:8080` prints a public
+URL. Your PC must stay on and the URL changes each run.
+
+**Any other Node host** (Railway, Fly.io, a VPS) works too — it just needs
+`npm install` + `npm start`; the server reads `PORT` from the environment. If
+you host the client separately from the server, point it at the server with
+`?server=https://your-host` on the page URL (or `localStorage.mng_server`).
 
 ---
 
