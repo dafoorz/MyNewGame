@@ -43,8 +43,11 @@ export default class GameScene extends Phaser.Scene {
     this.aggro.register(this.tank);
     this.aggro.register(this.mage);
 
+    this.isTouch = this.sys.game.device.input.touch || 'ontouchstart' in window;
+
     this.setupInput();
     this.buildHud();
+    this.buildTouchControls();
   }
 
   // ---------------------------------------------------------------- arena ----
@@ -77,14 +80,32 @@ export default class GameScene extends Phaser.Scene {
 
   setupInput() {
     this.keys = this.input.keyboard.addKeys('W,A,S,D');
+    this.input.addPointer(2); // allow joystick + a button at the same time
 
-    // Left click = basic attack.
-    this.input.on('pointerdown', (pointer) => {
-      if (this.over || pointer.button !== 0) return;
-      this.basicAttack();
+    this.move = { x: 0, y: 0 }; // analog movement vector (joystick)
+    this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
+
+    this.input.on('pointerdown', (p) => {
+      if (this.over) return;
+      if (this.isOverUI(p)) return; // buttons handle their own taps
+      if (this.isTouch) {
+        if (p.x < CONFIG.width * 0.5) this.startJoystick(p); // left side moves
+      } else if (p.button === 0) {
+        this.basicAttack();
+      }
     });
 
-    // Skills 1-4.
+    this.input.on('pointermove', (p) => {
+      if (this.joy.active && p.id === this.joy.id) this.updateJoystick(p);
+    });
+
+    const release = (p) => {
+      if (this.joy.active && p.id === this.joy.id) this.endJoystick();
+    };
+    this.input.on('pointerup', release);
+    this.input.on('pointerupoutside', release);
+
+    // Skills 1-4 (keyboard).
     this.input.keyboard.on('keydown-ONE', () => this.useSkill(1));
     this.input.keyboard.on('keydown-TWO', () => this.useSkill(2));
     this.input.keyboard.on('keydown-THREE', () => this.useSkill(3));
@@ -94,6 +115,63 @@ export default class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-R', () => {
       if (this.over) this.scene.restart();
     });
+  }
+
+  // True if the pointer is over a tappable HUD control (skill box / attack btn).
+  isOverUI(p) {
+    if (this.skillBoxes) {
+      for (const sb of this.skillBoxes) {
+        if (Math.abs(p.x - sb.x) <= sb.boxW / 2 && Math.abs(p.y - sb.y) <= sb.boxW / 2) {
+          return true;
+        }
+      }
+    }
+    if (this.attackBtn) {
+      if (Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  startJoystick(p) {
+    this.joy.active = true;
+    this.joy.id = p.id;
+    this.joy.baseX = p.x;
+    this.joy.baseY = p.y;
+    this.move.x = 0;
+    this.move.y = 0;
+    this.joyBase.setPosition(p.x, p.y).setVisible(true);
+    this.joyThumb.setPosition(p.x, p.y).setVisible(true);
+  }
+
+  updateJoystick(p) {
+    const max = 60;
+    let dx = p.x - this.joy.baseX;
+    let dy = p.y - this.joy.baseY;
+    const r = Math.hypot(dx, dy);
+    if (r > max) {
+      dx = (dx / r) * max;
+      dy = (dy / r) * max;
+    }
+    this.joyThumb.setPosition(this.joy.baseX + dx, this.joy.baseY + dy);
+    // Dead zone so a light touch doesn't drift.
+    if (Math.hypot(dx, dy) > 8) {
+      this.move.x = dx / max;
+      this.move.y = dy / max;
+    } else {
+      this.move.x = 0;
+      this.move.y = 0;
+    }
+  }
+
+  endJoystick() {
+    this.joy.active = false;
+    this.joy.id = -1;
+    this.move.x = 0;
+    this.move.y = 0;
+    this.joyBase.setVisible(false);
+    this.joyThumb.setVisible(false);
   }
 
   // ---------------------------------------------------------------- combat ---
@@ -188,21 +266,31 @@ export default class GameScene extends Phaser.Scene {
     const dt = Math.min(delta / 1000, 0.05);
     if (this.over) return;
 
-    // Tank movement (WASD).
-    let mx = 0;
-    let my = 0;
-    if (this.keys.A.isDown) mx -= 1;
-    if (this.keys.D.isDown) mx += 1;
-    if (this.keys.W.isDown) my -= 1;
-    if (this.keys.S.isDown) my += 1;
-    if (mx !== 0 || my !== 0) {
-      const len = Math.hypot(mx, my);
-      this.tank.moveBy(mx / len, my / len, dt);
+    // Tank movement: joystick (touch) takes priority, else WASD.
+    if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
+      this.tank.moveBy(this.move.x, this.move.y, dt); // analog: partial tilt = slower
+    } else {
+      let mx = 0;
+      let my = 0;
+      if (this.keys.A.isDown) mx -= 1;
+      if (this.keys.D.isDown) mx += 1;
+      if (this.keys.W.isDown) my -= 1;
+      if (this.keys.S.isDown) my += 1;
+      if (mx !== 0 || my !== 0) {
+        const len = Math.hypot(mx, my);
+        this.tank.moveBy(mx / len, my / len, dt);
+      }
     }
 
-    // Tank faces the mouse.
-    const p = this.input.activePointer;
-    this.tank.facing = Math.atan2(p.worldY - this.tank.y, p.worldX - this.tank.x);
+    // Facing: touch auto-faces the boss; desktop faces the mouse.
+    if (this.isTouch) {
+      if (this.boss.alive) {
+        this.tank.facing = Math.atan2(this.boss.y - this.tank.y, this.boss.x - this.tank.x);
+      }
+    } else {
+      const p = this.input.activePointer;
+      this.tank.facing = Math.atan2(p.worldY - this.tank.y, p.worldX - this.tank.x);
+    }
 
     this.tank.update(dt);
 
@@ -305,11 +393,13 @@ export default class GameScene extends Phaser.Scene {
 
     SKILLS.forEach((def, i) => {
       const x = startX + i * (boxW + gap) + boxW / 2;
-      this.add
+      const box = this.add
         .rectangle(x, y, boxW, boxW, 0x1c2138, 0.95)
         .setStrokeStyle(2, 0x3a4366)
         .setDepth(60)
-        .setScrollFactor(0);
+        .setScrollFactor(0)
+        .setInteractive();
+      box.on('pointerdown', () => this.useSkill(def.slot)); // tap to cast (mobile)
 
       this.add
         .text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, {
@@ -341,7 +431,54 @@ export default class GameScene extends Phaser.Scene {
         .setScrollFactor(0);
       overlay.height = 0;
 
-      this.skillBoxes.push({ def, overlay, boxW });
+      this.skillBoxes.push({ def, overlay, boxW, x, y });
+    });
+  }
+
+  // On-screen controls for touch devices: a movement joystick (drawn on demand)
+  // and an attack button. Skills are tapped directly on the skill bar.
+  buildTouchControls() {
+    this.joyBase = this.add
+      .circle(0, 0, 60, 0xffffff, 0.08)
+      .setStrokeStyle(2, 0xffffff, 0.25)
+      .setDepth(70)
+      .setScrollFactor(0)
+      .setVisible(false);
+    this.joyThumb = this.add
+      .circle(0, 0, 26, 0xffffff, 0.2)
+      .setStrokeStyle(2, 0xffffff, 0.5)
+      .setDepth(71)
+      .setScrollFactor(0)
+      .setVisible(false);
+
+    if (!this.isTouch) return;
+
+    const ax = CONFIG.width - 80;
+    const ay = CONFIG.height - 90;
+    const btn = this.add
+      .circle(ax, ay, 48, CONFIG.colors.tank, 0.9)
+      .setStrokeStyle(3, 0xffffff, 0.85)
+      .setDepth(70)
+      .setScrollFactor(0)
+      .setInteractive();
+    this.add
+      .text(ax, ay, 'ATK', {
+        fontFamily: 'Segoe UI, sans-serif',
+        fontSize: '17px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(71)
+      .setScrollFactor(0);
+    btn.on('pointerdown', () => {
+      if (!this.over) this.basicAttack();
+    });
+    this.attackBtn = { x: ax, y: ay, r: 48 };
+
+    // Make the end-screen tappable to restart (no keyboard on phones).
+    this.input.on('pointerdown', () => {
+      if (this.over) this.scene.restart();
     });
   }
 
