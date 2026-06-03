@@ -13,6 +13,7 @@
 //   buff    temp damage/speed boost { damageMult?, speedMult?, duration, allies? }
 //   stealth vanish + crit next hit  { duration, critMult }
 //   dash    lunge forward + arc     { distance, mult }
+//   dodge   i-frame roll (no damage) { distance, iframe }  — universal slot 5
 //   dot     damage-over-time on foe { intMult, duration }
 //   summon  raise minions           { count, duration }
 
@@ -101,6 +102,13 @@ export const CLASSES = {
     ],
   },
 };
+
+// Universal Dodge: every class gets a 5th skill — a quick roll that grants brief
+// invulnerability (i-frames) and no damage. Ranged classes roll farther so they
+// can reposition out of melee. 10s cooldown.
+for (const cls of Object.values(CLASSES)) {
+  cls.skills.push({ key: 'E', name: 'Dodge', cd: 10, color: '#5dd9ff', type: 'dodge', distance: 150, iframe: 0.45 });
+}
 
 export const CLASS_ORDER = ['warrior', 'mage', 'rogue', 'archer', 'healer', 'necromancer'];
 export const DEFAULT_CLASS = 'warrior';

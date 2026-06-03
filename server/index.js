@@ -54,7 +54,7 @@ io.on('connection', (socket) => {
 
   socket.on('cast', ({ slot } = {}) => {
     const room = rooms.get(currentCode);
-    if (room && slot >= 1 && slot <= 4) room.doCast(socket.id, slot);
+    if (room && slot >= 1 && slot <= 5) room.doCast(socket.id, slot);
   });
 
   socket.on('spend_stat', ({ attr } = {}) => {

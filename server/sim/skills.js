@@ -103,6 +103,16 @@ export function resolveSkill(zone, player, def) {
       applyArc(zone, player, { stat: 'phys', mult: def.mult, crit: true });
       break;
     }
+    case 'dodge': {
+      const dist = def.distance * (player.def.basic.kind === 'ranged' ? 1.5 : 1); // ranged roll farther
+      const b = player.bounds;
+      player.x = Math.max(player.radius, Math.min(b.w - player.radius, player.x + Math.cos(player.facing) * dist));
+      player.y = Math.max(player.radius, Math.min(b.h - player.radius, player.y + Math.sin(player.facing) * dist));
+      player.invulnTimer = def.iframe;
+      zone.addFx({ t: 'ring', x: player.x, y: player.y, radius: player.radius + 16, color: def.color });
+      zone.addFx({ t: 'text', x: player.x, y: player.y - 34, msg: 'DODGE', color: def.color });
+      break;
+    }
     case 'dot': {
       const t = zone.nearestEnemy(player.x, player.y, 420);
       if (t) { zone.dots.push({ owner: player.id, target: t, dps: player.stats.magPower * def.intMult, remaining: def.duration, acc: 0 }); zone.addFx({ t: 'text', x: t.x, y: t.y - t.radius - 16, msg: 'CURSED', color: '#c06cff' }); }

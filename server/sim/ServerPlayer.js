@@ -33,9 +33,10 @@ export default class ServerPlayer {
     this.statPoints = 0;
 
     this.attackTimer = 0;
-    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     this.damageReduction = 0; this.shieldTimer = 0;
     this.damageMult = 1; this.speedMult = 1; this.buffTimer = 0;
+    this.invulnTimer = 0; // i-frames during Dodge
 
     this.input = { mx: 0, my: 0, facing: this.facing };
   }
@@ -48,7 +49,7 @@ export default class ServerPlayer {
   }
 
   takeDamage(raw) {
-    if (!this.alive) return 0;
+    if (!this.alive || this.invulnTimer > 0) return 0; // i-frames: dodge negates the hit
     const amount = Math.max(0, Math.round(raw * (1 - this.damageReduction)));
     this.hp -= amount;
     if (this.hp <= 0) { this.hp = 0; this.alive = false; this.deadTimer = 5; }
@@ -103,9 +104,10 @@ export default class ServerPlayer {
 
   update(dt) {
     if (this.attackTimer > 0) this.attackTimer -= dt;
-    for (const k of [1, 2, 3, 4]) if (this.cooldowns[k] > 0) this.cooldowns[k] -= dt;
+    for (const k of [1, 2, 3, 4, 5]) if (this.cooldowns[k] > 0) this.cooldowns[k] -= dt;
     if (this.shieldTimer > 0) { this.shieldTimer -= dt; if (this.shieldTimer <= 0) this.damageReduction = 0; }
     if (this.buffTimer > 0) { this.buffTimer -= dt; if (this.buffTimer <= 0) { this.damageMult = 1; this.speedMult = 1; } }
+    if (this.invulnTimer > 0) this.invulnTimer -= dt;
 
     if (this.alive && (this.input.mx !== 0 || this.input.my !== 0)) {
       const speed = this.stats.moveSpeed * this.speedMult;
@@ -130,7 +132,7 @@ export default class ServerPlayer {
       id: this.id, name: this.name, classKey: this.classKey,
       x: Math.round(this.x), y: Math.round(this.y), facing: +this.facing.toFixed(3),
       hp: Math.ceil(this.hp), maxHp: this.maxHp, alive: this.alive,
-      shield: this.shieldTimer > 0, buff: this.buffTimer > 0, level: this.level,
+      shield: this.shieldTimer > 0, buff: this.buffTimer > 0, invuln: this.invulnTimer > 0, level: this.level,
     };
   }
 
@@ -139,7 +141,7 @@ export default class ServerPlayer {
     const s = this.stats;
     return {
       level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints,
-      cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2) },
+      cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2) },
       stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI },
     };
   }
