@@ -13,6 +13,7 @@ const app = express();
 // Serve the static client (index.html + src/) so one command runs everything.
 app.use(express.static(ROOT));
 app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('*', (_req, res) => res.sendFile(path.join(ROOT, 'index.html')));
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
