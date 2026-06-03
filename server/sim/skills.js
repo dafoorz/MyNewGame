@@ -108,11 +108,15 @@ export function resolveSkill(zone, player, def) {
       if (t) { zone.dots.push({ owner: player.id, target: t, dps: player.stats.magPower * def.intMult, remaining: def.duration, acc: 0 }); zone.addFx({ t: 'text', x: t.x, y: t.y - t.radius - 16, msg: 'CURSED', color: '#c06cff' }); }
       break;
     }
-    case 'summon':
-      // Server minions vs roaming mobs are a future addition; for now Raise Dead
-      // grants a short damage surge so the class still functions online.
-      player.applyBuff(1.25, 1, def.duration);
+    case 'summon': {
+      const dmg = Math.round(6 + player.level * 3 + player.stats.INT * 0.5);
+      const hp = Math.round(30 + player.level * 8 + player.stats.INT * 2);
+      for (let i = 0; i < def.count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        zone.spawnMinion(player.id, player.x + Math.cos(ang) * 30, player.y + Math.sin(ang) * 30, dmg, hp, def.duration);
+      }
       zone.addFx({ t: 'text', x: player.x, y: player.y - 30, msg: 'RISE!', color: '#a4f06c' });
       break;
+    }
   }
 }
