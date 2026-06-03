@@ -21,12 +21,14 @@ second tab/phone and Join with the 4-letter code to test co-op.
 - **Client** (`src/`): Phaser. Two play paths that DO NOT share combat code:
   - **Solo** = `GameScene.js` — runs the whole simulation locally (zones, mobs,
     leveling, classes, boss + AI ally). Works offline / on GitHub Pages.
-  - **Online** = `OnlineScene.js` — a thin renderer. Server is authoritative;
-    client sends input, renders snapshots, does light movement prediction.
-- **Server** (`server/`): authoritative. `RoomManager` maps 4-char invite codes
-  to `Room`s. Each `Room` runs a 30Hz tick (boss AI, mobs/projectiles, aggro,
-  damage, skills) and broadcasts compact snapshots. `sim/` is headless (no
-  Phaser).
+  - **Online** = `OnlineScene.js` — a thin renderer for ALL zones. Server is
+    authoritative; client sends input, renders per-zone snapshots, does light
+    movement prediction.
+- **Server** (`server/`): authoritative across the whole world. `RoomManager`
+  maps 4-char invite codes to `Room`s. Each `Room` runs a 30Hz tick and
+  simulates every zone that has players (`sim/Zone.js`: mobs, boss, projectiles,
+  aggro, DoTs, shared-XP kills, respawns). Players roam zones independently and
+  only see party members in the same zone. `sim/` is headless (no Phaser).
 - **Shared data** (`src/config.js`, `src/stats.js`, `src/classes/classes.js`,
   `src/world/zones.js`): plain data/math, imported by BOTH client and server —
   one source of truth for balance. Keep these Phaser-free.
@@ -74,13 +76,14 @@ src/
 - Stage 1–3 done: telegraphed boss + AI ally; zones/mobs/XP/leveling/stat
   points; 6 classes with data-driven skills; Necromancer minions have HP, are
   killable, and draw enemy aggro.
-- Stage 4 in progress: authoritative multiplayer + party (invite codes, party
-  HP bars, shared XP). Online drops the party into the **Boss Lair** only.
+- Stage 4: authoritative multiplayer + party (invite codes, per-zone party
+  HP bars, shared XP). Online now covers ALL zones — roam, fight mobs, level
+  up, spend stat points, and fight the co-op boss, all server-authoritative.
 
 ## Next / TODO ideas
 
-- Extend the authoritative server model to ALL zones + mobs + leveling (online
-  currently = boss lair only). The `Room` is generic enough to grow.
+- Server-side Necromancer minions online (currently Raise Dead is a temp damage
+  buff in `server/sim/skills.js`).
 - Party loot / shared drops.
 - "Leave party" button + return-to-lobby flow in `OnlineScene`.
 - Reconnect handling; spectate for downed players.
