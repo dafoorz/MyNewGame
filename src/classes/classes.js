@@ -50,7 +50,7 @@ export const CLASSES = {
     name: 'Rogue', role: 'Assassin · Melee', color: 0xd6c34a,
     desc: 'Burst damage and crits. Stealth and gap-closing dash.',
     stats: { STR: 11, DEX: 18, INT: 6, VIT: 11, AGI: 18 },
-    threat: 1.2,
+    threat: 1.0,
     basic: { kind: 'melee', stat: 'phys', range: 70, mult: 1 },
     skills: [
       { key: '1', name: 'Backstab', cd: 4, color: '#ffcf6b', type: 'arc', mult: 3.0, crit: true, half: 0.5 },
@@ -64,7 +64,7 @@ export const CLASSES = {
     name: 'Archer', role: 'Marksman · Ranged', color: 0x8bd96a,
     desc: 'Physical ranged. Strong single-target and kiting.',
     stats: { STR: 9, DEX: 20, INT: 6, VIT: 10, AGI: 15 },
-    threat: 1.1,
+    threat: 1.0,
     basic: { kind: 'ranged', stat: 'phys', range: 380, mult: 1, speed: 480 },
     skills: [
       { key: '1', name: 'Power Shot', cd: 4, color: '#ffcf6b', type: 'bolt', stat: 'phys', count: 1, mult: 3.0, speed: 560, pierce: true, crit: true },
@@ -92,7 +92,7 @@ export const CLASSES = {
     name: 'Necromancer', role: 'Summoner · Ranged', color: 0xa46cd6,
     desc: 'Raises minions, curses with decay, drains life.',
     stats: { STR: 6, DEX: 10, INT: 19, VIT: 12, AGI: 9 },
-    threat: 1.1,
+    threat: 1.0,
     basic: { kind: 'ranged', stat: 'mag', range: 320, mult: 0.9, speed: 380 },
     skills: [
       { key: '1', name: 'Raise Dead', cd: 14, color: '#a4f06c', type: 'summon', count: 2, duration: 16 },

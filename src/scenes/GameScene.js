@@ -473,7 +473,7 @@ export default class GameScene extends Phaser.Scene {
         for (let i = 0; i < def.count; i++) {
           const ang = Math.random() * Math.PI * 2;
           const mn = new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds);
-          mn.threatMultiplier = 1.5; // minions pull threat well so they soak hits
+          mn.threatMultiplier = 1.0; // minions share the same threat weight as non-tank classes
           if (this.boss) this.aggro.register(mn);
           this.minions.push(mn);
         }
