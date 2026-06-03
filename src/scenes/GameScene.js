@@ -1,9 +1,8 @@
-import { CONFIG, STAT_PRESETS } from '../config.js';
+import { CONFIG } from '../config.js';
 import { Stats } from '../stats.js';
 import AggroTable from '../systems/AggroTable.js';
 import Progression from '../systems/Progression.js';
 import Player from '../entities/Player.js';
-import Ally from '../entities/Ally.js';
 import Boss from '../entities/Boss.js';
 import Mob from '../entities/Mob.js';
 import Minion from '../entities/Minion.js';
@@ -76,7 +75,6 @@ export default class GameScene extends Phaser.Scene {
     this.minions = [];
     this.dots = [];
     this.boss = null;
-    this.mage = null;
     this.aggro = new AggroTable();
     this.portalSprites = [];
     this.respawnToken = 0;
@@ -129,7 +127,6 @@ export default class GameScene extends Phaser.Scene {
     this.dots = [];
     this.projGfx.clear();
     if (this.boss) { this.boss.destroy(); this.boss = null; }
-    if (this.mage) { this.mage.destroy(); this.mage = null; }
     this.aggro = new AggroTable();
     this.portalSprites.forEach((o) => o.destroy());
     this.portalSprites = [];
@@ -209,10 +206,7 @@ export default class GameScene extends Phaser.Scene {
   spawnBossEncounter(bounds) {
     const cx = bounds.w / 2, cy = bounds.h / 2;
     this.boss = new Boss(this, cx, cy - 40, { bounds });
-    this.mage = new Ally(this, cx - 200, cy - 40, new Stats(STAT_PRESETS.mage), { name: 'Mage Ally' });
-    this.mage.bounds = bounds;
     this.aggro.register(this.player);
-    this.aggro.register(this.mage);
   }
 
   checkPortals() {
@@ -378,7 +372,7 @@ export default class GameScene extends Phaser.Scene {
   // `source` is the attacker credited with threat (defaults to the player).
   damageEnemy(enemy, amount, crit, threatMult = 1, source = this.player) {
     if (enemy === this.boss) {
-      this.boss.takeDamage(amount, source === this.mage ? 'Ally' : 'You');
+      this.boss.takeDamage(amount, 'You');
       this.aggro.add(source, amount * (source.threatMultiplier || 1) * threatMult);
     } else {
       enemy.takeDamage(amount);
@@ -474,9 +468,6 @@ export default class GameScene extends Phaser.Scene {
         break;
       case 'buff':
         this.player.applyBuff({ damageMult: def.damageMult || 1, speedMult: def.speedMult || 1, duration: def.duration });
-        if (def.allies && this.mage && this.mage.alive) {
-          this.mage.applyBuff({ damageMult: def.damageMult || 1, speedMult: def.speedMult || 1, duration: def.duration });
-        }
         this.spawnText(this.player.x, this.player.y - 30, def.speedMult > 1 ? 'HASTE' : 'BLESSED', '#9be8ff');
         break;
       case 'stealth':
@@ -534,10 +525,6 @@ export default class GameScene extends Phaser.Scene {
     const amount = Math.round(this.player.stats.magPower * def.intMult);
     const healed = this.player.heal(amount);
     if (healed > 0) this.spawnText(this.player.x, this.player.y - 30, '+' + healed, '#7CFC9A');
-    if (def.allies && this.mage && this.mage.alive) {
-      const h2 = this.mage.heal(amount);
-      if (h2 > 0) this.spawnText(this.mage.x, this.mage.y - 30, '+' + h2, '#7CFC9A');
-    }
   }
 
   fireBolt(def) {
@@ -670,6 +657,7 @@ export default class GameScene extends Phaser.Scene {
 
   update(time, delta) {
     const dt = Math.min(delta / 1000, 0.05);
+    const bossWasAlive = this.boss && this.boss.alive;
 
     if (this.player.alive) {
       if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
@@ -727,18 +715,8 @@ export default class GameScene extends Phaser.Scene {
     this.updateDots(dt);
 
     if (this.boss) {
-      this.mage.aiUpdate(dt, {
-        boss: this.boss,
-        telegraph: this.boss.telegraph,
-        onCast: (amount, crit) => {
-          this.boss.takeDamage(amount, 'Ally');
-          this.aggro.add(this.mage, amount * this.mage.threatMultiplier);
-          this.spawnText(this.boss.x, this.boss.y - this.boss.radius, amount, crit ? '#ffe066' : '#fff', crit);
-        },
-      });
-      const wasAlive = this.boss.alive;
       this.boss.update(dt, {
-        players: [this.player, this.mage, ...this.minions.filter((mn) => mn.alive)],
+        players: [this.player, ...this.minions.filter((mn) => mn.alive)],
         aggro: this.aggro,
         onHit: (pl, amount) => {
           const dealt = pl.takeDamage(amount);
@@ -746,7 +724,7 @@ export default class GameScene extends Phaser.Scene {
           if (!pl.alive) this.aggro.remove(pl);
         },
       });
-      if (wasAlive && !this.boss.alive) {
+      if (bossWasAlive && !this.boss.alive) {
         this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
         let full = false;
         for (let i = 0; i < 2; i++) { // two guaranteed high-rarity boss drops
