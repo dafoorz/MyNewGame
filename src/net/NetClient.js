@@ -46,6 +46,7 @@ export default class NetClient {
   sendInput(mx, my, facing) { if (this.socket) this.socket.emit('input', { mx, my, facing }); }
   sendBasic() { if (this.socket) this.socket.emit('basic'); }
   sendCast(slot) { if (this.socket) this.socket.emit('cast', { slot }); }
+  spendStat(attr) { if (this.socket) this.socket.emit('spend_stat', { attr }); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
 }
