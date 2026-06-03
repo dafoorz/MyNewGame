@@ -42,6 +42,10 @@ export default class Boss {
     this.hp = this.maxHp;
     this.alive = true;
 
+    // DPS meter: total damage taken + when the fight started (first hit).
+    this.dmgTaken = 0;
+    this.combatStart = 0;
+
     this.speed = 95;
     this.meleeBand = 130;
     this.bounds = opts.bounds ?? CONFIG.arena; // movement clamp (set per zone)
@@ -82,10 +86,24 @@ export default class Boss {
       .setOrigin(0.5)
       .setDepth(61)
       .setScrollFactor(0);
+    this.dpsText = scene.add
+      .text(CONFIG.width / 2 + 310, 40, '', {
+        fontFamily: 'Consolas, monospace',
+        fontSize: '12px',
+        color: '#ff9a5a',
+        fontStyle: 'bold',
+        stroke: '#000',
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(61)
+      .setScrollFactor(0);
   }
 
   takeDamage(amount) {
     if (!this.alive) return;
+    if (this.combatStart === 0) this.combatStart = this.scene.time.now;
+    this.dmgTaken += amount;
     this.hp -= amount;
     if (this.hp <= 0) {
       this.hp = 0;
@@ -287,6 +305,11 @@ export default class Boss {
   updateHud() {
     this.hpBar.setValue(this.hp / this.maxHp);
     this.hpText.setText(`${Math.ceil(this.hp)} / ${this.maxHp}`);
+    if (this.combatStart > 0) {
+      const elapsed = (this.scene.time.now - this.combatStart) / 1000;
+      const dps = elapsed > 0.5 ? Math.round(this.dmgTaken / elapsed) : 0;
+      this.dpsText.setText(`DPS ${dps.toLocaleString()}`);
+    }
   }
 
   destroy() {
@@ -295,5 +318,6 @@ export default class Boss {
     this.hpBar.destroy();
     this.hpText.destroy();
     this.nameText.destroy();
+    this.dpsText.destroy();
   }
 }

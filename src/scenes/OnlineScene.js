@@ -42,6 +42,7 @@ export default class OnlineScene extends Phaser.Scene {
 
     this.bossHpBar = new HealthBar(this, CONFIG.width / 2, 40, 620, 22, { depth: 60, fixed: true });
     this.bossNameText = this.add.text(CONFIG.width / 2, 18, '', { fontFamily: 'Segoe UI', fontSize: '15px', color: '#ffd24a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
+    this.bossDpsText = this.add.text(CONFIG.width / 2 + 310, 40, '', { fontFamily: 'Consolas, monospace', fontSize: '12px', color: '#ff9a5a', fontStyle: 'bold', stroke: '#000', strokeThickness: 3 }).setOrigin(1, 0.5).setDepth(61).setScrollFactor(0);
 
     this.setupInput();
     this.buildHud();
@@ -230,8 +231,16 @@ export default class OnlineScene extends Phaser.Scene {
 
   renderBoss(b) {
     const g = this.bossGfx; g.clear(); const tg = this.telegraphGfx; tg.clear();
-    if (!b) { this.bossHpBar.setVisible(false); this.bossNameText.setVisible(false); return; }
+    if (!b) { this.bossHpBar.setVisible(false); this.bossNameText.setVisible(false); this.bossDpsText.setVisible(false); this._bossPrevHp = null; this._bossStart = 0; this._bossDmg = 0; return; }
     this.bossHpBar.setVisible(true); this.bossNameText.setVisible(true).setText(b.name); this.bossHpBar.setValue(b.hp / b.maxHp);
+    // Party DPS meter: accumulate boss HP lost between snapshots (a fresh/full
+    // boss resets the fight). Shown next to the boss bar.
+    if (this._bossPrevHp == null || b.hp > this._bossPrevHp) { this._bossStart = this.time.now; this._bossDmg = 0; }
+    else if (b.hp < this._bossPrevHp) this._bossDmg += this._bossPrevHp - b.hp;
+    this._bossPrevHp = b.hp;
+    const elapsed = (this.time.now - this._bossStart) / 1000;
+    const dps = elapsed > 0.5 ? Math.round(this._bossDmg / elapsed) : 0;
+    this.bossDpsText.setVisible(true).setText(`DPS ${dps.toLocaleString()}`);
     if (b.alive) {
       g.fillStyle(CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, 46); g.lineStyle(3, 0x000000, 0.4); g.strokeCircle(b.x, b.y, 46);
       g.fillStyle(0xffd24a, 1); g.fillCircle(b.x + Math.cos(b.facing) * 50, b.y + Math.sin(b.facing) * 50, 8);
