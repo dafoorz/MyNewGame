@@ -16,7 +16,7 @@ export default class Minion {
     this.life = duration;
     this.alive = true;
     this.facing = 0;
-    this.threatMultiplier = 1.5; // pulls aggro well so it soaks hits
+    this.threatMultiplier = 1.0; // same threat weight as non-tank classes
   }
 
   takeDamage(amount) {

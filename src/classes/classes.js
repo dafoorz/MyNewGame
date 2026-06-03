@@ -23,6 +23,7 @@ export const CLASSES = {
     desc: 'Sturdy frontline. Holds aggro, cleaves, and shields.',
     stats: { STR: 15, DEX: 11, INT: 5, VIT: 20, AGI: 9 },
     threat: 4.0,
+    equip: { armor: ['heavy', 'medium', 'light'], weapons: ['sword', 'axe', 'dagger'] },
     basic: { kind: 'melee', stat: 'phys', range: 78, mult: 1 },
     skills: [
       { key: '1', name: 'Heavy Strike', cd: 5, color: '#ffcf6b', type: 'arc', mult: 2.6, threat: 2, crit: true },
@@ -37,6 +38,7 @@ export const CLASSES = {
     desc: 'Glass cannon. Heavy AoE nukes, very low health.',
     stats: { STR: 5, DEX: 11, INT: 20, VIT: 8, AGI: 12 },
     threat: 1.0,
+    equip: { armor: ['light'], weapons: ['staff', 'wand'] },
     basic: { kind: 'ranged', stat: 'mag', range: 360, mult: 1, speed: 430 },
     skills: [
       { key: '1', name: 'Fireball', cd: 4, color: '#ff7a3c', type: 'blast', stat: 'mag', radius: 95, mult: 2.2 },
@@ -50,7 +52,8 @@ export const CLASSES = {
     name: 'Rogue', role: 'Assassin · Melee', color: 0xd6c34a,
     desc: 'Burst damage and crits. Stealth and gap-closing dash.',
     stats: { STR: 11, DEX: 18, INT: 6, VIT: 11, AGI: 18 },
-    threat: 1.2,
+    threat: 1.0,
+    equip: { armor: ['medium', 'light'], weapons: ['dagger', 'sword', 'bow'] },
     basic: { kind: 'melee', stat: 'phys', range: 70, mult: 1 },
     skills: [
       { key: '1', name: 'Backstab', cd: 4, color: '#ffcf6b', type: 'arc', mult: 3.0, crit: true, half: 0.5 },
@@ -64,7 +67,8 @@ export const CLASSES = {
     name: 'Archer', role: 'Marksman · Ranged', color: 0x8bd96a,
     desc: 'Physical ranged. Strong single-target and kiting.',
     stats: { STR: 9, DEX: 20, INT: 6, VIT: 10, AGI: 15 },
-    threat: 1.1,
+    threat: 1.0,
+    equip: { armor: ['medium', 'light'], weapons: ['bow', 'dagger'] },
     basic: { kind: 'ranged', stat: 'phys', range: 380, mult: 1, speed: 480 },
     skills: [
       { key: '1', name: 'Power Shot', cd: 4, color: '#ffcf6b', type: 'bolt', stat: 'phys', count: 1, mult: 3.0, speed: 560, pierce: true, crit: true },
@@ -79,6 +83,7 @@ export const CLASSES = {
     desc: 'Heals and buffs allies. Weak solo damage.',
     stats: { STR: 7, DEX: 11, INT: 17, VIT: 13, AGI: 10 },
     threat: 1.0,
+    equip: { armor: ['light', 'medium'], weapons: ['staff', 'wand'] },
     basic: { kind: 'ranged', stat: 'mag', range: 340, mult: 0.8, speed: 400 },
     skills: [
       { key: '1', name: 'Holy Light', cd: 5, color: '#ffe066', type: 'heal', intMult: 2.5, allies: true },
@@ -92,7 +97,8 @@ export const CLASSES = {
     name: 'Necromancer', role: 'Summoner · Ranged', color: 0xa46cd6,
     desc: 'Raises minions, curses with decay, drains life.',
     stats: { STR: 6, DEX: 10, INT: 19, VIT: 12, AGI: 9 },
-    threat: 1.1,
+    threat: 1.0,
+    equip: { armor: ['light'], weapons: ['staff', 'wand', 'dagger'] },
     basic: { kind: 'ranged', stat: 'mag', range: 320, mult: 0.9, speed: 380 },
     skills: [
       { key: '1', name: 'Raise Dead', cd: 14, color: '#a4f06c', type: 'summon', count: 2, duration: 16 },

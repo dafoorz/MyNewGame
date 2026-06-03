@@ -11,6 +11,11 @@ import { ZONES, START_ZONE } from '../world/zones.js';
 import { CLASSES, DEFAULT_CLASS } from '../classes/classes.js';
 import { loadProgress, saveProgress, clearProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
+import InventoryPanel from '../ui/InventoryPanel.js';
+import {
+  STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
+  rollDrop, rollItem, rarityColor,
+} from '../items.js';
 
 const STAT_INFO = [
   ['STR', 'melee damage'],
@@ -37,7 +42,12 @@ export default class GameScene extends Phaser.Scene {
     this.basic = this.classDef.basic;
 
     this.progression = new Progression();
-    this.player = new Player(this, 200, 400, new Stats(this.classDef.stats), {
+    // Loot & equipment: base/leveled attributes live in baseAttrs; the player's
+    // derived Stats are rebuilt from baseAttrs + equipped gear (recomputeStats).
+    this.baseAttrs = { ...this.classDef.stats };
+    this.gear = emptyGear();
+    this.inventory = [];
+    this.player = new Player(this, 200, 400, new Stats(totalAttrs(this.baseAttrs, this.gear)), {
       name: this.classDef.name,
       color: this.classDef.color,
       threatMultiplier: this.classDef.threat,
@@ -50,8 +60,13 @@ export default class GameScene extends Phaser.Scene {
       this.progression.level = Math.max(1, saved.level);
       this.progression.xp = Math.max(0, saved.xp);
       this.progression.statPoints = Math.max(0, saved.statPoints);
-      for (const [attr] of STAT_INFO) if (saved.stats[attr] != null) this.player.stats[attr] = saved.stats[attr];
-      this.player.recalc();
+      for (const attr of STAT_KEYS) if (saved.stats[attr] != null) this.baseAttrs[attr] = saved.stats[attr];
+      if (Array.isArray(saved.inventory)) this.inventory = saved.inventory.map(sanitizeItem).filter(Boolean).slice(0, INV_CAP);
+      if (saved.gear) for (const slot of EQUIP_SLOTS) {
+        const it = sanitizeItem(saved.gear[slot]);
+        if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
+      }
+      this.recomputeStats();
       this.player.hp = this.player.maxHp;
     }
 
@@ -75,6 +90,18 @@ export default class GameScene extends Phaser.Scene {
     this.buildHud();
     this.buildTouchControls();
     this.buildCharPanel();
+    this.invPanel = new InventoryPanel(this, {
+      getModel: () => ({
+        classKey: this.classKey,
+        statPoints: this.progression.statPoints,
+        baseStats: this.baseAttrs,
+        stats: this.player.stats,
+        inventory: this.inventory,
+        gear: this.gear,
+      }),
+      onEquip: (itemId) => this.equipItem(itemId),
+      onUnequip: (slot) => this.unequipItem(slot),
+    });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
       onResetProgress: () => { clearProgress(this.classKey); this.scene.restart({ classKey: this.classKey }); },
@@ -206,7 +233,7 @@ export default class GameScene extends Phaser.Scene {
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C,I');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -233,6 +260,7 @@ export default class GameScene extends Phaser.Scene {
         case 'skill5': this.useSkill(5); break;
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
+        case 'inv': this.invPanel.toggle(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -240,6 +268,7 @@ export default class GameScene extends Phaser.Scene {
 
   isOverUI(p) {
     if (this.settings && this.settings.open) return true;
+    if (this.invPanel && this.invPanel.contains(p.x, p.y)) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) {
       for (const sb of this.skillBoxes) {
@@ -250,6 +279,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.charBtn && Math.hypot(p.x - this.charBtn.x, p.y - this.charBtn.y) <= this.charBtn.r) return true;
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
+    if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
     return false;
   }
 
@@ -299,19 +329,36 @@ export default class GameScene extends Phaser.Scene {
     return this.nearestEnemyTo(this.player.x, this.player.y, max);
   }
 
-  // What a mob should attack. Minions act as taunting pets: if any minion is
-  // within reach, the mob prefers it over the player. Only when no minion is
-  // around (or the player isn't a valid target) does it fall back.
+  // World target for placed skills (blast/dot): the cursor in manual AIM, the
+  // nearest enemy in AUTO, or the aimed direction on touch. Clamped to castRange.
+  aimPoint(castRange = 360) {
+    const px = this.player.x, py = this.player.y;
+    if (this.autoAim) { const e = this.nearestEnemy(); if (e) return { x: e.x, y: e.y }; }
+    else if (!this.isTouch) {
+      const p = this.input.activePointer;
+      let dx = p.worldX - px, dy = p.worldY - py;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
+      return { x: px + dx, y: py + dy };
+    }
+    return { x: px + Math.cos(this.player.facing) * castRange, y: py + Math.sin(this.player.facing) * castRange };
+  }
+
+  // What a mob should attack: the nearest player-side entity. Minions are
+  // treated identically to the player — no taunt preference, just closest wins
+  // (a stealthed player isn't a valid target).
   mobTarget(mob) {
-    let bestMinion = null, bd = Infinity;
+    let best = null, bd = Infinity;
+    if (this.player.alive && !this.player.stealth) {
+      best = this.player;
+      bd = Math.hypot(this.player.x - mob.x, this.player.y - mob.y);
+    }
     for (const mn of this.minions) {
       if (!mn.alive) continue;
       const d = Math.hypot(mn.x - mob.x, mn.y - mob.y);
-      if (d < bd) { bd = d; bestMinion = mn; }
+      if (d < bd) { bd = d; best = mn; }
     }
-    if (bestMinion && bd <= mob.leashRange) return bestMinion;
-    if (this.player.alive && !this.player.stealth) return this.player;
-    return bestMinion;
+    return best;
   }
 
   // Roll outgoing player damage, honoring crit / buffs / guaranteed-crit states.
@@ -398,9 +445,7 @@ export default class GameScene extends Phaser.Scene {
         break;
       }
       case 'blast': {
-        const t = this.nearestEnemy();
-        const tx = t ? t.x : this.player.x + Math.cos(this.player.facing) * 200;
-        const ty = t ? t.y : this.player.y + Math.sin(this.player.facing) * 200;
+        const { x: tx, y: ty } = this.aimPoint(def.range || 360);
         this.spawnBlastFx(tx, ty, def.radius, def.color);
         for (const e of this.enemies()) {
           if (Math.hypot(e.x - tx, e.y - ty) <= def.radius + e.radius) {
@@ -460,7 +505,8 @@ export default class GameScene extends Phaser.Scene {
         break;
       }
       case 'dot': {
-        const t = this.nearestEnemy(420);
+        const aim = this.aimPoint(420);
+        const t = this.nearestEnemyTo(aim.x, aim.y, 140);
         if (t) {
           this.dots.push({ target: t, dps: this.player.stats.magPower * def.intMult, remaining: def.duration, acc: 0 });
           this.spawnText(t.x, t.y - t.radius - 16, 'CURSED', '#c06cff');
@@ -473,7 +519,7 @@ export default class GameScene extends Phaser.Scene {
         for (let i = 0; i < def.count; i++) {
           const ang = Math.random() * Math.PI * 2;
           const mn = new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds);
-          mn.threatMultiplier = 1.5; // minions pull threat well so they soak hits
+          mn.threatMultiplier = 1.0; // minions share the same threat weight as non-tank classes
           if (this.boss) this.aggro.register(mn);
           this.minions.push(mn);
         }
@@ -515,6 +561,13 @@ export default class GameScene extends Phaser.Scene {
     const levels = this.progression.addXp(mob.xp);
     this.spawnText(mob.x, mob.y - 20, `+${mob.xp} XP`, '#9be8ff');
     if (levels > 0) this.onLevelUp();
+    // Loot: roll a drop scaled by the mob's level.
+    const drop = rollDrop({ mobLevel: mob.level });
+    if (drop && this.inventory.length < INV_CAP) {
+      this.inventory.push(drop);
+      this.spawnText(mob.x, mob.y - 30, '✦ ' + drop.name, rarityColor(drop.rarity));
+      if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+    }
     this.persist();
     mob.destroy();
     this.mobs = this.mobs.filter((m) => m !== mob);
@@ -688,7 +741,16 @@ export default class GameScene extends Phaser.Scene {
           if (!pl.alive) this.aggro.remove(pl);
         },
       });
-      if (wasAlive && !this.boss.alive) this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
+      if (wasAlive && !this.boss.alive) {
+        this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
+        const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 }); // guaranteed high-rarity boss loot
+        if (this.inventory.length < INV_CAP) {
+          this.inventory.push(drop);
+          this.spawnText(this.player.x, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+          if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+          this.persist();
+        }
+      }
     }
 
     if (!this.player.alive) this.respawnInTown();
@@ -789,6 +851,14 @@ export default class GameScene extends Phaser.Scene {
     setBg.on('pointerdown', () => this.settings.toggle());
     this.settingsBtn = { x: setX, y: setY, r: 22 };
 
+    const invX = CONFIG.width - 44, invY = 180;
+    const invBg = this.add.circle(invX, invY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x8bd96a, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(invX, invY, 'I', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#8bd96a' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    invBg.on('pointerdown', () => this.invPanel.toggle());
+    this.invBtn = { x: invX, y: invY, r: 22 };
+
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
     const btn = this.add.circle(ax, ay, 46, this.classDef.color, 0.9).setStrokeStyle(3, 0xffffff, 0.85)
@@ -844,22 +914,56 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spendStat(attr) {
-    if (this.progression.statPoints <= 0) return;
+    if (this.progression.statPoints <= 0 || !STAT_KEYS.includes(attr)) return;
     this.progression.statPoints--;
-    this.player.stats[attr]++;
-    if (attr === 'VIT') this.player.recalc();
+    this.baseAttrs[attr]++;
+    this.recomputeStats();
     this.persist();
     this.refreshCharPanel();
   }
 
+  // Rebuild the player's derived Stats from base attributes + equipped gear,
+  // keeping the current HP fraction. Call after spending a point or equipping.
+  recomputeStats() {
+    const ratio = this.player.maxHp ? this.player.hp / this.player.maxHp : 1;
+    this.player.stats = new Stats(totalAttrs(this.baseAttrs, this.gear));
+    this.player.maxHp = this.player.stats.maxHp;
+    this.player.hp = Math.min(this.player.maxHp, Math.max(1, Math.round(this.player.maxHp * ratio)));
+  }
+
+  // --- inventory / equipment (solo, local) ---
+  equipItem(itemId) {
+    const idx = this.inventory.findIndex((it) => it.id === itemId);
+    if (idx < 0) return;
+    const item = this.inventory[idx];
+    if (!canEquip(this.classKey, item)) return;
+    const prev = this.gear[item.slot];
+    this.gear[item.slot] = item;
+    this.inventory.splice(idx, 1);
+    if (prev) this.inventory.push(prev);
+    this.recomputeStats();
+    this.persist();
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+  }
+
+  unequipItem(slot) {
+    if (!EQUIP_SLOTS.includes(slot) || !this.gear[slot] || this.inventory.length >= INV_CAP) return;
+    this.inventory.push(this.gear[slot]);
+    this.gear[slot] = null;
+    this.recomputeStats();
+    this.persist();
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+  }
+
   // Save this class's progress to localStorage (per device, per class).
   persist() {
-    const s = this.player.stats;
     saveProgress(this.classKey, {
       level: this.progression.level,
       xp: this.progression.xp,
       statPoints: this.progression.statPoints,
-      stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI },
+      stats: { ...this.baseAttrs },
+      inventory: this.inventory,
+      gear: this.gear,
     });
   }
 

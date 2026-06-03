@@ -3,6 +3,7 @@ import Mob from './Mob.js';
 import Minion from './Minion.js';
 import Boss from './Boss.js';
 import AggroTable from './AggroTable.js';
+import { rollDrop, rollItem } from '../../src/items.js';
 
 // One zone instance in a party's world. Owns its mobs / boss / projectiles and
 // runs them authoritatively. The Room feeds it the players currently standing in
@@ -52,12 +53,13 @@ export default class Zone {
   spawnProjectile(pr) { pr.id = this.nextProjId++; this.projectiles.push(pr); }
   spawnMinion(owner, x, y, damage, maxHp, duration) { this.minions.push(new Minion(this.nextMinionId++, owner, x, y, damage, maxHp, duration, this.bounds)); }
 
-  // What a mob attacks: a minion decoy in range (taunt), else the nearest player.
+  // What a mob attacks: the nearest player-side entity. Minions are treated
+  // identically to players — no taunt preference, just closest wins.
   mobTarget(mob) {
-    let bm = null, bd = Infinity;
-    for (const mn of this.minions) { if (!mn.alive) continue; const d = Math.hypot(mn.x - mob.x, mn.y - mob.y); if (d < bd) { bd = d; bm = mn; } }
-    if (bm && bd <= mob.leashRange) return bm;
-    return this.nearestPlayer(mob.x, mob.y);
+    let best = null, bd = Infinity;
+    for (const p of this.players) { if (!p.alive) continue; const d = Math.hypot(p.x - mob.x, p.y - mob.y); if (d < bd) { bd = d; best = p; } }
+    for (const mn of this.minions) { if (!mn.alive) continue; const d = Math.hypot(mn.x - mob.x, mn.y - mob.y); if (d < bd) { bd = d; best = mn; } }
+    return best;
   }
 
   enemies() {
@@ -86,7 +88,11 @@ export default class Zone {
         const owner = attacker.owner != null ? this.playerById(attacker.owner) : attacker;
         if (owner) { if (this.bossFightStart === 0) this.bossFightStart = this.clock; const rec = this.bossDmg.get(owner.id) || { name: owner.name, dmg: 0 }; rec.name = owner.name; rec.dmg += amount; this.bossDmg.set(owner.id, rec); }
       }
-    } else enemy.takeDamage(amount);
+    } else {
+      enemy.takeDamage(amount);
+      // Remember who to credit a drop to (minions credit their owner).
+      if (attacker) enemy.lastAttacker = attacker.owner != null ? attacker.owner : attacker.id;
+    }
     this.addFx({ t: 'dmg', x: enemy.x, y: enemy.y - enemy.radius, amount, crit: !!crit });
   }
 
@@ -201,13 +207,24 @@ export default class Zone {
         this.addFx({ t: 'xp', x: m.x, y: m.y - 20, amount: m.xp });
         if (levels > 0) { p.recalc(); p.hp = p.maxHp; this.addFx({ t: 'level', x: p.x, y: p.y - 46, level: p.level }); }
       }
+      // Loot: roll a drop and award it to whoever landed the kill.
+      const drop = rollDrop({ mobLevel: m.level });
+      if (drop) {
+        const killer = this.players.find((p) => p.id === m.lastAttacker) || this.players[0];
+        if (killer && killer.addItem(drop)) this.addFx({ t: 'loot', x: m.x, y: m.y - 28, rarity: drop.rarity, name: drop.name });
+      }
       this.respawnQueue.push({ typeKey: m.typeKey, level: m.level, at: this.clock + 8 });
     }
     this.mobs = alive;
   }
 
   onBossDeath() {
-    for (const p of this.players) { const levels = p.addXp(500); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: 500 }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; } }
+    for (const p of this.players) {
+      const levels = p.addXp(500); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: 500 }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
+      // Boss loot: every participant gets a guaranteed, high-rarity drop.
+      const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
+      if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x, y: p.y - 34, rarity: drop.rarity, name: drop.name });
+    }
     this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'BOSS SLAIN!', color: '#7CFC9A', big: true });
     this.aggro = new AggroTable();
     this.bossResetTimer = 10;

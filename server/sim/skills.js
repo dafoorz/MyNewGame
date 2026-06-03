@@ -29,10 +29,24 @@ function applyNova(zone, player, def, threatMult) {
   }
 }
 
-function applyBlast(zone, player, def) {
+// Where a "placed" skill (blast/dot) lands: the client's cursor world target,
+// clamped to `range` from the caster so it can't be thrown across the map
+// (authoritative). If no aim was supplied (e.g. a bot), falls back to the
+// nearest enemy, then to the caster's facing.
+function aimPoint(zone, player, range) {
+  if (player.aimX != null && player.aimY != null) {
+    let dx = player.aimX - player.x, dy = player.aimY - player.y;
+    const d = Math.hypot(dx, dy);
+    if (d > range) { dx = (dx / d) * range; dy = (dy / d) * range; }
+    return { x: player.x + dx, y: player.y + dy };
+  }
   const t = zone.nearestEnemy(player.x, player.y);
-  const tx = t ? t.x : player.x + Math.cos(player.facing) * 200;
-  const ty = t ? t.y : player.y + Math.sin(player.facing) * 200;
+  if (t) return { x: t.x, y: t.y };
+  return { x: player.x + Math.cos(player.facing) * range, y: player.y + Math.sin(player.facing) * range };
+}
+
+function applyBlast(zone, player, def) {
+  const { x: tx, y: ty } = aimPoint(zone, player, def.range || 360);
   zone.addFx({ t: 'blast', x: tx, y: ty, radius: def.radius, color: def.color });
   for (const e of zone.enemies()) if (Math.hypot(e.x - tx, e.y - ty) <= def.radius + e.radius) {
     const { amount, crit } = player.roll(def.stat, def.mult, def.crit);
@@ -114,7 +128,8 @@ export function resolveSkill(zone, player, def) {
       break;
     }
     case 'dot': {
-      const t = zone.nearestEnemy(player.x, player.y, 420);
+      const aim = aimPoint(zone, player, 420);
+      const t = zone.nearestEnemy(aim.x, aim.y, 140);
       if (t) { zone.dots.push({ owner: player.id, target: t, dps: player.stats.magPower * def.intMult, remaining: def.duration, acc: 0 }); zone.addFx({ t: 'text', x: t.x, y: t.y - t.radius - 16, msg: 'CURSED', color: '#c06cff' }); }
       break;
     }

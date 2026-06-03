@@ -6,6 +6,8 @@ import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
 import { saveProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
+import InventoryPanel from '../ui/InventoryPanel.js';
+import { rarityColor } from '../items.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -50,6 +52,11 @@ export default class OnlineScene extends Phaser.Scene {
     this.buildHud();
     this.buildTouchControls();
     this.buildCharPanel();
+    this.inventory = new InventoryPanel(this, {
+      getModel: () => this.me || {},
+      onEquip: (itemId) => this.net.sendEquip(itemId),
+      onUnequip: (slot) => this.net.sendUnequip(slot),
+    });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('ClassSelectScene'); },
     });
@@ -111,13 +118,14 @@ export default class OnlineScene extends Phaser.Scene {
       if (this.settings && this.settings.open) return;
       switch (this.settings.actionFor(e.code)) {
         case 'attack': this.net.sendBasic(); break;
-        case 'skill1': this.net.sendCast(1); break;
-        case 'skill2': this.net.sendCast(2); break;
-        case 'skill3': this.net.sendCast(3); break;
-        case 'skill4': this.net.sendCast(4); break;
-        case 'skill5': this.net.sendCast(5); break;
+        case 'skill1': this.castSlot(1); break;
+        case 'skill2': this.castSlot(2); break;
+        case 'skill3': this.castSlot(3); break;
+        case 'skill4': this.castSlot(4); break;
+        case 'skill5': this.castSlot(5); break;
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
+        case 'inv': this.inventory.toggle(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -125,12 +133,14 @@ export default class OnlineScene extends Phaser.Scene {
 
   isOverUI(p) {
     if (this.settings && this.settings.open) return true;
+    if (this.inventory && this.inventory.contains(p.x, p.y)) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) for (const sb of this.skillBoxes) if (Math.abs(p.x - sb.x) <= sb.boxW / 2 && Math.abs(p.y - sb.y) <= sb.boxW / 2) return true;
     if (this.attackBtn && Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) return true;
     if (this.charBtn && Math.hypot(p.x - this.charBtn.x, p.y - this.charBtn.y) <= this.charBtn.r) return true;
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
+    if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
     return false;
   }
 
@@ -150,8 +160,9 @@ export default class OnlineScene extends Phaser.Scene {
     this._saveAcc = (this._saveAcc || 0) + dt;
     if (this._saveAcc >= 2 && this.me && this.me.stats) {
       this._saveAcc = 0;
-      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.stats });
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear });
     }
+    if (this.inventory && this.inventory.open) this.inventory.refresh();
 
     const meEnt = snap.players.find((p) => p.id === this.net.youId);
     if (meEnt && !this.localPos) this.localPos = { x: meEnt.x, y: meEnt.y };
@@ -194,6 +205,25 @@ export default class OnlineScene extends Phaser.Scene {
     if (snap.boss && snap.boss.alive) { const d = Math.hypot(snap.boss.x - x, snap.boss.y - y); if (d < bd) best = snap.boss; }
     return best;
   }
+
+  // World target for placed skills (blast/dot): the cursor in manual AIM, the
+  // nearest enemy in AUTO, or the aimed direction on touch. Sent with the cast;
+  // the server clamps it. Clamped to castRange here too for predictable feel.
+  aimPoint(castRange = 360) {
+    const px = this.localPos ? this.localPos.x : 0, py = this.localPos ? this.localPos.y : 0;
+    const snap = this.net.snapshot;
+    if (this.autoAim && snap) { const e = this.nearestEnemy(snap, px, py); if (e) return { x: e.x, y: e.y }; }
+    else if (!this.isTouch) {
+      const ptr = this.input.activePointer;
+      let dx = ptr.worldX - px, dy = ptr.worldY - py;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
+      return { x: px + dx, y: py + dy };
+    }
+    return { x: px + Math.cos(this.facing) * castRange, y: py + Math.sin(this.facing) * castRange };
+  }
+
+  castSlot(slot) { const a = this.aimPoint(); this.net.sendCast(slot, a.x, a.y); }
 
   // --------------------------------------------------------------- entities --
   renderPlayers(snap) {
@@ -286,6 +316,7 @@ export default class OnlineScene extends Phaser.Scene {
       else if (f.t === 'heal') this.spawnText(f.x, f.y, '+' + f.amount, '#7CFC9A');
       else if (f.t === 'xp') this.spawnText(f.x, f.y, '+' + f.amount + ' XP', '#9be8ff');
       else if (f.t === 'level') this.spawnText(f.x, f.y, 'LEVEL UP! Lv' + f.level, '#ffe066', true);
+      else if (f.t === 'loot') this.spawnText(f.x, f.y, '✦ ' + f.name, rarityColor(f.rarity));
       else if (f.t === 'text') this.spawnText(f.x, f.y, f.msg, f.color, f.big);
       else if (f.t === 'arc') this.spawnArc(f.x, f.y, f.facing, f.range, f.half);
       else if (f.t === 'ring') this.spawnRing(f.x, f.y, f.radius, f.color);
@@ -310,7 +341,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.skills.forEach((def, i) => {
       const slot = i + 1, x = startX + i * (boxW + gap) + boxW / 2;
       const box = this.add.rectangle(x, y, boxW, boxW, 0x1c2138, 0.95).setStrokeStyle(2, 0x3a4366).setDepth(60).setScrollFactor(0).setInteractive();
-      box.on('pointerdown', () => this.net.sendCast(slot));
+      box.on('pointerdown', () => this.castSlot(slot));
       this.add.text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, { fontFamily: 'Segoe UI', fontSize: '12px', fontStyle: 'bold', color: '#fff' }).setDepth(62).setScrollFactor(0);
       this.add.text(x, y + boxW / 2 - 11, def.name, { fontFamily: 'Segoe UI', fontSize: '8px', color: def.color, align: 'center', wordWrap: { width: boxW - 4 } }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
       const overlay = this.add.rectangle(x, y + boxW / 2, boxW, boxW, 0x000000, 0.65).setOrigin(0.5, 1).setDepth(61).setScrollFactor(0); overlay.height = 0;
@@ -337,6 +368,11 @@ export default class OnlineScene extends Phaser.Scene {
     const setBg = this.add.circle(setX, setY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xb8a4ff, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
     this.add.text(setX, setY, '⚙', { fontFamily: 'Segoe UI', fontSize: '18px', color: '#b8a4ff' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     setBg.on('pointerdown', () => this.settings.toggle()); this.settingsBtn = { x: setX, y: setY, r: 22 };
+
+    const invX = CONFIG.width - 44, invY = 180;
+    const invBg = this.add.circle(invX, invY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x8bd96a, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(invX, invY, 'I', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#8bd96a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    invBg.on('pointerdown', () => this.inventory.toggle()); this.invBtn = { x: invX, y: invY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;

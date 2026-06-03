@@ -52,14 +52,24 @@ io.on('connection', (socket) => {
     if (room) room.doBasic(socket.id);
   });
 
-  socket.on('cast', ({ slot } = {}) => {
+  socket.on('cast', ({ slot, aimX, aimY } = {}) => {
     const room = rooms.get(currentCode);
-    if (room && slot >= 1 && slot <= 5) room.doCast(socket.id, slot);
+    if (room && slot >= 1 && slot <= 5) room.doCast(socket.id, slot, aimX, aimY);
   });
 
   socket.on('spend_stat', ({ attr } = {}) => {
     const room = rooms.get(currentCode);
     if (room) room.spendStat(socket.id, attr);
+  });
+
+  socket.on('equip', ({ itemId } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room) room.equipItem(socket.id, itemId);
+  });
+
+  socket.on('unequip', ({ slot } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room) room.unequipItem(socket.id, slot);
   });
 
   const leave = () => {
