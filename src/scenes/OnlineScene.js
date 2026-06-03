@@ -5,6 +5,7 @@ import { ZONES } from '../world/zones.js';
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
 import { saveProgress } from '../progress.js';
+import SettingsPanel from '../ui/SettingsPanel.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -49,6 +50,9 @@ export default class OnlineScene extends Phaser.Scene {
     this.buildHud();
     this.buildTouchControls();
     this.buildCharPanel();
+    this.settings = new SettingsPanel(this, {
+      onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('ClassSelectScene'); },
+    });
 
     this.inputAcc = 0;
     this.move = { x: 0, y: 0 };
@@ -85,9 +89,10 @@ export default class OnlineScene extends Phaser.Scene {
 
   // ----------------------------------------------------------------- input ---
   setupInput() {
-    this.keys = this.input.keyboard.addKeys('W,A,S,D');
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
+    this.held = new Set();
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,C');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -98,19 +103,33 @@ export default class OnlineScene extends Phaser.Scene {
     const release = (p) => { if (this.joy.active && p.id === this.joy.id) this.endJoystick(); };
     this.input.on('pointerup', release); this.input.on('pointerupoutside', release);
 
-    for (const n of ['ONE', 'TWO', 'THREE', 'FOUR']) {
-      const slot = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4 }[n];
-      this.input.keyboard.on('keydown-' + n, () => this.net.sendCast(slot));
-    }
-    this.input.keyboard.on('keydown-C', () => this.toggleCharPanel());
+    this.input.keyboard.on('keydown', (e) => {
+      if (this.settings && this.settings.captureKey(e)) return;
+      this.held.add(e.code);
+      if (e.repeat) return;
+      if (e.code === 'Escape') { if (this.settings) this.settings.toggle(); return; }
+      if (this.settings && this.settings.open) return;
+      switch (this.settings.actionFor(e.code)) {
+        case 'attack': this.net.sendBasic(); break;
+        case 'skill1': this.net.sendCast(1); break;
+        case 'skill2': this.net.sendCast(2); break;
+        case 'skill3': this.net.sendCast(3); break;
+        case 'skill4': this.net.sendCast(4); break;
+        case 'aim': this.toggleAutoAim(); break;
+        case 'char': this.toggleCharPanel(); break;
+      }
+    });
+    this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
   }
 
   isOverUI(p) {
+    if (this.settings && this.settings.open) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) for (const sb of this.skillBoxes) if (Math.abs(p.x - sb.x) <= sb.boxW / 2 && Math.abs(p.y - sb.y) <= sb.boxW / 2) return true;
     if (this.attackBtn && Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) return true;
     if (this.charBtn && Math.hypot(p.x - this.charBtn.x, p.y - this.charBtn.y) <= this.charBtn.r) return true;
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
+    if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     return false;
   }
 
@@ -138,7 +157,7 @@ export default class OnlineScene extends Phaser.Scene {
 
     let mx = 0, my = 0;
     if (this.joy.active) { mx = this.move.x; my = this.move.y; }
-    else { if (this.keys.A.isDown) mx -= 1; if (this.keys.D.isDown) mx += 1; if (this.keys.W.isDown) my -= 1; if (this.keys.S.isDown) my += 1; const len = Math.hypot(mx, my); if (len > 1) { mx /= len; my /= len; } }
+    else if (!this.settings.open) { const b = this.settings.binds; if (this.held.has(b.left)) mx -= 1; if (this.held.has(b.right)) mx += 1; if (this.held.has(b.up)) my -= 1; if (this.held.has(b.down)) my += 1; const len = Math.hypot(mx, my); if (len > 1) { mx /= len; my /= len; } }
 
     if (this.localPos && meEnt && meEnt.alive) {
       this.localPos.x = Phaser.Math.Clamp(this.localPos.x + mx * this.moveSpeed * dt, 16, this.bounds.w - 16);
@@ -309,8 +328,13 @@ export default class OnlineScene extends Phaser.Scene {
     const aimX = CONFIG.width - 44, aimY = 80;
     const aimBg = this.add.circle(aimX, aimY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
     this.aimText = this.add.text(aimX, aimY, 'AIM', { fontFamily: 'Segoe UI', fontSize: '10px', fontStyle: 'bold', color: '#6cd0ff' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
-    aimBg.on('pointerdown', () => { this.autoAim = !this.autoAim; this.aimText.setText(this.autoAim ? 'AUTO' : 'AIM').setColor(this.autoAim ? '#ffe066' : '#6cd0ff'); });
+    aimBg.on('pointerdown', () => this.toggleAutoAim());
     this.aimBtn = { x: aimX, y: aimY, r: 22 };
+
+    const setX = CONFIG.width - 44, setY = 130;
+    const setBg = this.add.circle(setX, setY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xb8a4ff, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(setX, setY, '⚙', { fontFamily: 'Segoe UI', fontSize: '18px', color: '#b8a4ff' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    setBg.on('pointerdown', () => this.settings.toggle()); this.settingsBtn = { x: setX, y: setY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -318,6 +342,8 @@ export default class OnlineScene extends Phaser.Scene {
     this.add.text(ax, ay, 'ATK', { fontFamily: 'Segoe UI', fontSize: '16px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     btn.on('pointerdown', () => this.net.sendBasic()); this.attackBtn = { x: ax, y: ay, r: 46 };
   }
+
+  toggleAutoAim() { this.autoAim = !this.autoAim; this.aimText.setText(this.autoAim ? 'AUTO' : 'AIM').setColor(this.autoAim ? '#ffe066' : '#6cd0ff'); }
 
   buildCharPanel() {
     this.charPanelOpen = false;

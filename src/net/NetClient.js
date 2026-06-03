@@ -49,4 +49,5 @@ export default class NetClient {
   spendStat(attr) { if (this.socket) this.socket.emit('spend_stat', { attr }); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
+  close() { if (this.socket) { this.socket.emit('leave_party'); this.socket.disconnect(); } }
 }
