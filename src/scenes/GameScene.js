@@ -9,6 +9,7 @@ import Mob from '../entities/Mob.js';
 import Minion from '../entities/Minion.js';
 import { ZONES, START_ZONE } from '../world/zones.js';
 import { CLASSES, DEFAULT_CLASS } from '../classes/classes.js';
+import { loadProgress, saveProgress } from '../progress.js';
 
 const STAT_INFO = [
   ['STR', 'melee damage'],
@@ -41,6 +42,17 @@ export default class GameScene extends Phaser.Scene {
       threatMultiplier: this.classDef.threat,
       attackRange: this.basic.range,
     });
+
+    // Restore this class's saved progress on this device (if any).
+    const saved = loadProgress(this.classKey);
+    if (saved) {
+      this.progression.level = Math.max(1, saved.level);
+      this.progression.xp = Math.max(0, saved.xp);
+      this.progression.statPoints = Math.max(0, saved.statPoints);
+      for (const [attr] of STAT_INFO) if (saved.stats[attr] != null) this.player.stats[attr] = saved.stats[attr];
+      this.player.recalc();
+      this.player.hp = this.player.maxHp;
+    }
 
     // Per-zone state.
     this.mobs = [];
@@ -470,6 +482,7 @@ export default class GameScene extends Phaser.Scene {
     const levels = this.progression.addXp(mob.xp);
     this.spawnText(mob.x, mob.y - 20, `+${mob.xp} XP`, '#9be8ff');
     if (levels > 0) this.onLevelUp();
+    this.persist();
     mob.destroy();
     this.mobs = this.mobs.filter((m) => m !== mob);
 
@@ -791,7 +804,19 @@ export default class GameScene extends Phaser.Scene {
     this.progression.statPoints--;
     this.player.stats[attr]++;
     if (attr === 'VIT') this.player.recalc();
+    this.persist();
     this.refreshCharPanel();
+  }
+
+  // Save this class's progress to localStorage (per device, per class).
+  persist() {
+    const s = this.player.stats;
+    saveProgress(this.classKey, {
+      level: this.progression.level,
+      xp: this.progression.xp,
+      statPoints: this.progression.statPoints,
+      stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI },
+    });
   }
 
   refreshCharPanel() {

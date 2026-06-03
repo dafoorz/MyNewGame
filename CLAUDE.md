@@ -79,6 +79,12 @@ src/
 - Stage 4: authoritative multiplayer + party (invite codes, per-zone party
   HP bars, shared XP). Online now covers ALL zones — roam, fight mobs, level
   up, spend stat points, and fight the co-op boss, all server-authoritative.
+- Boss combat shows a per-player ranked DPS meter (server-computed online,
+  visible to all; solo shows You vs Ally).
+- Per-device, per-class progress saving via `src/progress.js` (localStorage,
+  one slot per class). Solo loads/saves directly; online sends saved progress
+  on join (server `applyProgress`) and saves snapshots back. Phaser-free,
+  browser-only — not imported by the server.
 
 ## Next / TODO ideas
 

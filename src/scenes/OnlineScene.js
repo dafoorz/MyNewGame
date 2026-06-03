@@ -4,6 +4,7 @@ import { Stats } from '../stats.js';
 import { ZONES } from '../world/zones.js';
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
+import { saveProgress } from '../progress.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -124,6 +125,13 @@ export default class OnlineScene extends Phaser.Scene {
     if (!snap) return;
     if (snap.zoneKey !== this.curZone) this.onZoneChange(snap.zoneKey);
     this.me = snap.me;
+
+    // Persist this class's progress on this device (throttled).
+    this._saveAcc = (this._saveAcc || 0) + dt;
+    if (this._saveAcc >= 2 && this.me && this.me.stats) {
+      this._saveAcc = 0;
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.stats });
+    }
 
     const meEnt = snap.players.find((p) => p.id === this.net.youId);
     if (meEnt && !this.localPos) this.localPos = { x: meEnt.x, y: meEnt.y };

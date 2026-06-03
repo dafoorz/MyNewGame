@@ -1,6 +1,7 @@
 import { CONFIG } from '../config.js';
 import { CLASSES } from '../classes/classes.js';
 import NetClient from '../net/NetClient.js';
+import { loadProgress } from '../progress.js';
 
 // After choosing a class: play solo (the original offline game) or go online
 // (create/join a party on the server). Solo never creates a NetClient.
@@ -65,9 +66,10 @@ export default class LobbyScene extends Phaser.Scene {
       if (this.formEl) this.formEl.destroy();
       this.scene.start('OnlineScene', { net, classKey: this.classKey });
     });
+    const progress = loadProgress(this.classKey);
     net.on('connect', () => {
-      if (mode === 'create') net.createParty(name, this.classKey);
-      else net.joinParty(code, name, this.classKey);
+      if (mode === 'create') net.createParty(name, this.classKey, progress);
+      else net.joinParty(code, name, this.classKey, progress);
     });
     net.connect();
   }

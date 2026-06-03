@@ -29,8 +29,9 @@ export default class Room {
     return z;
   }
 
-  addPlayer(id, name, classKey) {
+  addPlayer(id, name, classKey, progress) {
     const p = new ServerPlayer(id, name, classKey);
+    p.applyProgress(progress);
     this.movePlayerToZone(p, START_ZONE, null);
     p.x += (this.players.size % 3) * 50 - 50; // fan out a little
     this.players.set(id, p);

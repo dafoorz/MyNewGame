@@ -40,8 +40,8 @@ export default class NetClient {
   on(event, fn) { this.handlers[event] = fn; }
   _emit(event, data) { if (this.handlers[event]) this.handlers[event](data); }
 
-  createParty(name, classKey) { this.socket.emit('create_party', { name, classKey }); }
-  joinParty(code, name, classKey) { this.socket.emit('join_party', { code, name, classKey }); }
+  createParty(name, classKey, progress) { this.socket.emit('create_party', { name, classKey, progress }); }
+  joinParty(code, name, classKey, progress) { this.socket.emit('join_party', { code, name, classKey, progress }); }
 
   sendInput(mx, my, facing) { if (this.socket) this.socket.emit('input', { mx, my, facing }); }
   sendBasic() { if (this.socket) this.socket.emit('basic'); }
