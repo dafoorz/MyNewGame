@@ -80,6 +80,8 @@ export default class Room {
   // --- client intents ---
   setInput(id, mx, my, facing) { const p = this.players.get(id); if (p) p.setInput(mx, my, facing); }
   spendStat(id, attr) { const p = this.players.get(id); if (p) p.spendStat(attr); }
+  equipItem(id, itemId) { const p = this.players.get(id); if (p) p.equip(itemId); }
+  unequipItem(id, slot) { const p = this.players.get(id); if (p) p.unequip(slot); }
 
   doBasic(id) {
     const p = this.players.get(id);

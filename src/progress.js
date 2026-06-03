@@ -13,7 +13,7 @@ function writeAll(obj) {
 }
 
 // Returns saved progress for a class, or null if none. Shape:
-// { level, xp, statPoints, stats: { STR, DEX, INT, VIT, AGI } }
+// { level, xp, statPoints, stats: { STR, DEX, INT, VIT, AGI }, inventory, gear }
 export function loadProgress(classKey) {
   const all = readAll();
   return all[classKey] || null;
@@ -27,6 +27,8 @@ export function saveProgress(classKey, data) {
     xp: data.xp | 0,
     statPoints: data.statPoints | 0,
     stats: ATTRS.reduce((o, k) => { o[k] = (data.stats && data.stats[k]) | 0; return o; }, {}),
+    inventory: Array.isArray(data.inventory) ? data.inventory : [],
+    gear: data.gear || null,
   };
   writeAll(all);
 }

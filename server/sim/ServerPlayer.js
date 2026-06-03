@@ -2,6 +2,7 @@ import { Stats } from '../../src/stats.js';
 import { CLASSES, DEFAULT_CLASS } from '../../src/classes/classes.js';
 import { START_ZONE } from '../../src/world/zones.js';
 import { clamp } from './mathutil.js';
+import { STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem } from '../../src/items.js';
 
 // Authoritative player state. The client sends movement intent + cast requests;
 // everything that affects combat, position, XP and leveling is decided here.
@@ -12,7 +13,10 @@ export default class ServerPlayer {
     this.name = (name || 'Player').slice(0, 16);
     this.classKey = CLASSES[classKey] ? classKey : DEFAULT_CLASS;
     this.def = CLASSES[this.classKey];
-    this.stats = new Stats(this.def.stats);
+    this.baseAttrs = { ...this.def.stats }; // leveled attributes (no gear)
+    this.gear = emptyGear();                // equipped items per slot
+    this.inventory = [];                    // backpack
+    this.stats = new Stats(totalAttrs(this.baseAttrs, this.gear)); // base + gear
     this.threatMultiplier = this.def.threat;
 
     this.radius = 16;
@@ -68,16 +72,57 @@ export default class ServerPlayer {
   applyBuff(damageMult, speedMult, duration) { this.damageMult = damageMult; this.speedMult = speedMult; this.buffTimer = duration; }
 
   // Restore saved progress supplied by the client on join (per-device save).
+  // Items are re-derived through sanitizeItem — saves come from the client and
+  // are NOT trusted (a tampered save can't inject overpowered gear).
   applyProgress(p) {
     if (!p) return;
     this.level = Math.max(1, p.level | 0);
     this.xp = Math.max(0, p.xp | 0);
     this.statPoints = Math.max(0, p.statPoints | 0);
-    if (p.stats) for (const k of ['STR', 'DEX', 'INT', 'VIT', 'AGI']) {
-      if (typeof p.stats[k] === 'number') this.stats[k] = Math.max(this.def.stats[k] || 0, p.stats[k] | 0);
+    if (p.stats) for (const k of STAT_KEYS) {
+      if (typeof p.stats[k] === 'number') this.baseAttrs[k] = Math.max(this.def.stats[k] || 0, p.stats[k] | 0);
     }
-    this.recalc();
+    if (Array.isArray(p.inventory)) this.inventory = p.inventory.map(sanitizeItem).filter(Boolean).slice(0, INV_CAP);
+    if (p.gear) for (const slot of EQUIP_SLOTS) {
+      const it = sanitizeItem(p.gear[slot]);
+      if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
+    }
+    this.recomputeStats();
     this.hp = this.maxHp;
+  }
+
+  // Rebuild derived stats from base attributes + equipped gear, preserving the
+  // current HP fraction. Call after spending a point or changing equipment.
+  recomputeStats() {
+    const ratio = this.maxHp ? this.hp / this.maxHp : 1;
+    this.stats = new Stats(totalAttrs(this.baseAttrs, this.gear));
+    this.maxHp = this.stats.maxHp;
+    this.hp = Math.min(this.maxHp, Math.max(1, Math.round(this.maxHp * ratio)));
+  }
+
+  // --- inventory / equipment (server-authoritative) ---
+  addItem(item) { if (item && this.inventory.length < INV_CAP) { this.inventory.push(item); return true; } return false; }
+
+  equip(itemId) {
+    const idx = this.inventory.findIndex((it) => it.id === itemId);
+    if (idx < 0) return false;
+    const item = this.inventory[idx];
+    if (!canEquip(this.classKey, item)) return false; // validate — don't trust client
+    const prev = this.gear[item.slot];
+    this.gear[item.slot] = item;
+    this.inventory.splice(idx, 1);
+    if (prev) this.inventory.push(prev);
+    this.recomputeStats();
+    return true;
+  }
+
+  unequip(slot) {
+    if (!EQUIP_SLOTS.includes(slot) || !this.gear[slot]) return false;
+    if (this.inventory.length >= INV_CAP) return false;
+    this.inventory.push(this.gear[slot]);
+    this.gear[slot] = null;
+    this.recomputeStats();
+    return true;
   }
 
   // --- progression ---
@@ -89,10 +134,10 @@ export default class ServerPlayer {
     return gained;
   }
   spendStat(attr) {
-    if (this.statPoints <= 0 || !(attr in this.stats)) return false;
+    if (this.statPoints <= 0 || !STAT_KEYS.includes(attr)) return false;
     this.statPoints -= 1;
-    this.stats[attr] += 1;
-    if (attr === 'VIT') this.recalc();
+    this.baseAttrs[attr] += 1;
+    this.recomputeStats();
     return true;
   }
   recalc() {
@@ -143,7 +188,10 @@ export default class ServerPlayer {
     return {
       level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints,
       cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2) },
-      stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI },
+      stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI }, // total (base + gear)
+      baseStats: { ...this.baseAttrs },
+      inventory: this.inventory,
+      gear: this.gear,
     };
   }
 }

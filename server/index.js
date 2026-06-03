@@ -62,6 +62,16 @@ io.on('connection', (socket) => {
     if (room) room.spendStat(socket.id, attr);
   });
 
+  socket.on('equip', ({ itemId } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room) room.equipItem(socket.id, itemId);
+  });
+
+  socket.on('unequip', ({ slot } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room) room.unequipItem(socket.id, slot);
+  });
+
   const leave = () => {
     const room = rooms.get(currentCode);
     if (!room) return;

@@ -4,6 +4,7 @@
 import { io } from 'socket.io-client';
 import { spawn } from 'child_process';
 import { setTimeout as sleep } from 'timers/promises';
+import { canEquip } from '../src/items.js';
 
 const proc = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: '8099' }, stdio: 'inherit' });
 await sleep(900);
@@ -70,6 +71,40 @@ b.emit('cast', { slot: 5 });
 const dodged = await waitFor(() => bSnap && bSnap.me && bSnap.me.cd && bSnap.me.cd[5] > 0, 2000);
 if (!dodged) fail('dodge (skill 5) did not trigger a cooldown');
 console.log(`  dodge cast: slot-5 cd ${bSnap.me.cd[5]}s`);
+
+// Loot: server rolls drops on mob kills — fight on until the backpack fills.
+const loot = setInterval(() => { b.emit('cast', { slot: 1 }); b.emit('basic'); }, 110);
+const gotLoot = await waitFor(() => bSnap && bSnap.me && bSnap.me.inventory && bSnap.me.inventory.length > 0, 14000);
+clearInterval(loot);
+if (!gotLoot) fail('no loot dropped after extended fighting');
+console.log(`  loot dropped: ${bSnap.me.inventory.length} item(s)`);
+
+// Equip flow (deterministic): a client restores a saved Mage-usable wand, then
+// equips + unequips it. Also exercises server-side sanitize of client items.
+const e = io(URL);
+let eSnap = null; e.on('snapshot', (s) => { eSnap = s; });
+await onConnect(e);
+e.emit('join_party', { code, name: 'Looter', classKey: 'mage', progress: { inventory: [{ id: 'w1', base: 'wand', slot: 'weapon', rarity: 'common', ilvl: 4, stats: { INT: 5 } }] } });
+await new Promise((res) => e.on('party_joined', res));
+const hasItem = await waitFor(() => eSnap && eSnap.me && eSnap.me.inventory && eSnap.me.inventory.some((it) => it.base === 'wand'), 3000);
+if (!hasItem) fail('saved inventory item was not restored');
+const baseInt = eSnap.me.stats.INT;
+const wand = eSnap.me.inventory.find((it) => it.base === 'wand');
+e.emit('equip', { itemId: wand.id });
+const eq = await waitFor(() => eSnap.me.gear && eSnap.me.gear.weapon && eSnap.me.gear.weapon.base === 'wand', 2000);
+if (!eq) fail('equip did not move the wand into the weapon slot');
+if (eSnap.me.stats.INT <= baseInt) fail('equipped gear did not raise total INT');
+console.log(`  equipped wand: INT ${baseInt} -> ${eSnap.me.stats.INT}`);
+e.emit('unequip', { slot: 'weapon' });
+const un = await waitFor(() => !eSnap.me.gear.weapon && eSnap.me.stats.INT === baseInt, 2000);
+if (!un) fail('unequip did not clear the slot / revert stats');
+console.log('  unequipped OK (stats reverted)');
+e.disconnect();
+
+// Class restriction: a Mage must never be allowed to equip a sword.
+const sword = { id: 'x', base: 'sword', slot: 'weapon', rarity: 'common', ilvl: 1, stats: { STR: 3 } };
+if (canEquip('mage', sword)) fail('mage was allowed to equip a sword (restriction broken)');
+console.log('  class restriction holds (mage cannot use a sword)');
 
 // Saved progress: a client joins supplying saved progress; server restores it.
 const d = io(URL);

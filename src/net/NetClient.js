@@ -47,6 +47,8 @@ export default class NetClient {
   sendBasic() { if (this.socket) this.socket.emit('basic'); }
   sendCast(slot, aimX, aimY) { if (this.socket) this.socket.emit('cast', { slot, aimX, aimY }); }
   spendStat(attr) { if (this.socket) this.socket.emit('spend_stat', { attr }); }
+  sendEquip(itemId) { if (this.socket) this.socket.emit('equip', { itemId }); }
+  sendUnequip(slot) { if (this.socket) this.socket.emit('unequip', { slot }); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
   close() { if (this.socket) { this.socket.emit('leave_party'); this.socket.disconnect(); } }
