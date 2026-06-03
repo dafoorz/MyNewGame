@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MyNewGame — Boss Fight (Stage 1)</title>
+  <title>MyNewGame — Co-op Boss Fight</title>
   <style>
     html, body {
       margin: 0;
@@ -29,6 +29,7 @@
       width: 100vw;
       height: 100vh;
       touch-action: none;
+      position: relative;
     }
     canvas {
       box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
@@ -46,6 +47,6 @@
   <!-- Socket.io client (only used by online mode; solo works without a server) -->
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <!-- Our game (ES modules) -->
-  <script type="module" src="src/main.js?v=8"></script>
+  <script type="module" src="src/main.js?v=9"></script>
 </body>
 </html>
