@@ -6,7 +6,7 @@ services:
     name: mynewgame
     runtime: node
     plan: free
-    region: oregon
+    region: frankfurt
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
