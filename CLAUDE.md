@@ -85,6 +85,10 @@ src/
   one slot per class). Solo loads/saves directly; online sends saved progress
   on join (server `applyProgress`) and saves snapshots back. Phaser-free,
   browser-only — not imported by the server.
+- In-game Settings (gear button / Esc) via `src/ui/SettingsPanel.js` +
+  `src/keybinds.js` (localStorage). Rebindable keys (move/attack/skills/aim/
+  char), Main Menu, Reset Keybinds, Fullscreen, and (solo) Reset Class
+  Progress. Both scenes read `this.settings.binds` + a `held` Set for input.
 
 ## Next / TODO ideas
 

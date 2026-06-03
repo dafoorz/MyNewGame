@@ -9,7 +9,8 @@ import Mob from '../entities/Mob.js';
 import Minion from '../entities/Minion.js';
 import { ZONES, START_ZONE } from '../world/zones.js';
 import { CLASSES, DEFAULT_CLASS } from '../classes/classes.js';
-import { loadProgress, saveProgress } from '../progress.js';
+import { loadProgress, saveProgress, clearProgress } from '../progress.js';
+import SettingsPanel from '../ui/SettingsPanel.js';
 
 const STAT_INFO = [
   ['STR', 'melee damage'],
@@ -74,6 +75,10 @@ export default class GameScene extends Phaser.Scene {
     this.buildHud();
     this.buildTouchControls();
     this.buildCharPanel();
+    this.settings = new SettingsPanel(this, {
+      onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
+      onResetProgress: () => { clearProgress(this.classKey); this.scene.restart({ classKey: this.classKey }); },
+    });
 
     this.loadZone(START_ZONE, null);
   }
@@ -197,10 +202,11 @@ export default class GameScene extends Phaser.Scene {
   // =============================================================== INPUT =====
 
   setupInput() {
-    this.keys = this.input.keyboard.addKeys('W,A,S,D');
     this.input.addPointer(2);
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
+    this.held = new Set();
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,C');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -212,14 +218,27 @@ export default class GameScene extends Phaser.Scene {
     this.input.on('pointerup', release);
     this.input.on('pointerupoutside', release);
 
-    this.input.keyboard.on('keydown-ONE', () => this.useSkill(1));
-    this.input.keyboard.on('keydown-TWO', () => this.useSkill(2));
-    this.input.keyboard.on('keydown-THREE', () => this.useSkill(3));
-    this.input.keyboard.on('keydown-FOUR', () => this.useSkill(4));
-    this.input.keyboard.on('keydown-C', () => this.toggleCharPanel());
+    this.input.keyboard.on('keydown', (e) => {
+      if (this.settings && this.settings.captureKey(e)) return;
+      this.held.add(e.code);
+      if (e.repeat) return;
+      if (e.code === 'Escape') { if (this.settings) this.settings.toggle(); return; }
+      if (this.settings && this.settings.open) return;
+      switch (this.settings.actionFor(e.code)) {
+        case 'attack': this.basicAttack(); break;
+        case 'skill1': this.useSkill(1); break;
+        case 'skill2': this.useSkill(2); break;
+        case 'skill3': this.useSkill(3); break;
+        case 'skill4': this.useSkill(4); break;
+        case 'aim': this.toggleAutoAim(); break;
+        case 'char': this.toggleCharPanel(); break;
+      }
+    });
+    this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
   }
 
   isOverUI(p) {
+    if (this.settings && this.settings.open) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) {
       for (const sb of this.skillBoxes) {
@@ -229,6 +248,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.attackBtn && Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) return true;
     if (this.charBtn && Math.hypot(p.x - this.charBtn.x, p.y - this.charBtn.y) <= this.charBtn.r) return true;
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
+    if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     return false;
   }
 
@@ -585,10 +605,13 @@ export default class GameScene extends Phaser.Scene {
         this.player.moveBy(this.move.x, this.move.y, dt);
       } else {
         let mx = 0, my = 0;
-        if (this.keys.A.isDown) mx -= 1;
-        if (this.keys.D.isDown) mx += 1;
-        if (this.keys.W.isDown) my -= 1;
-        if (this.keys.S.isDown) my += 1;
+        const b = this.settings.binds;
+        if (!this.settings.open) {
+          if (this.held.has(b.left)) mx -= 1;
+          if (this.held.has(b.right)) mx += 1;
+          if (this.held.has(b.up)) my -= 1;
+          if (this.held.has(b.down)) my += 1;
+        }
         if (mx !== 0 || my !== 0) {
           const len = Math.hypot(mx, my);
           this.player.moveBy(mx / len, my / len, dt);
@@ -744,6 +767,14 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     aimBg.on('pointerdown', () => this.toggleAutoAim());
     this.aimBtn = { x: aimX, y: aimY, r: 22 };
+
+    const setX = CONFIG.width - 44, setY = 130;
+    const setBg = this.add.circle(setX, setY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xb8a4ff, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(setX, setY, '⚙', { fontFamily: 'Segoe UI', fontSize: '18px', color: '#b8a4ff' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    setBg.on('pointerdown', () => this.settings.toggle());
+    this.settingsBtn = { x: setX, y: setY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
