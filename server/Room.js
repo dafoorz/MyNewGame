@@ -92,13 +92,15 @@ export default class Room {
     else resolveSkill(zone, p, { type: 'bolt', stat: b.stat, count: 1, mult: b.mult, speed: b.speed });
   }
 
-  doCast(id, slot) {
+  doCast(id, slot, aimX, aimY) {
     const p = this.players.get(id);
     if (!p || !p.alive) return;
     const def = p.def.skills[slot - 1];
     if (!def || p.cooldowns[slot] > 0) return;
     const zone = this.getZone(p.zoneKey);
     zone.players = this.playersInZone(p.zoneKey);
+    p.aimX = typeof aimX === 'number' ? aimX : null;
+    p.aimY = typeof aimY === 'number' ? aimY : null;
     resolveSkill(zone, p, def);
     p.cooldowns[slot] = def.cd;
   }

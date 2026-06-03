@@ -18,6 +18,7 @@ export default class ServerPlayer {
     this.radius = 16;
     this.x = 200; this.y = 400;
     this.facing = -Math.PI / 2;
+    this.aimX = null; this.aimY = null; // last cast's cursor world target (placed skills)
     this.zoneKey = START_ZONE;
     this.bounds = { w: 1200, h: 820 }; // set properly on zone entry
     this.portalLock = true;

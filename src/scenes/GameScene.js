@@ -299,6 +299,21 @@ export default class GameScene extends Phaser.Scene {
     return this.nearestEnemyTo(this.player.x, this.player.y, max);
   }
 
+  // World target for placed skills (blast/dot): the cursor in manual AIM, the
+  // nearest enemy in AUTO, or the aimed direction on touch. Clamped to castRange.
+  aimPoint(castRange = 360) {
+    const px = this.player.x, py = this.player.y;
+    if (this.autoAim) { const e = this.nearestEnemy(); if (e) return { x: e.x, y: e.y }; }
+    else if (!this.isTouch) {
+      const p = this.input.activePointer;
+      let dx = p.worldX - px, dy = p.worldY - py;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
+      return { x: px + dx, y: py + dy };
+    }
+    return { x: px + Math.cos(this.player.facing) * castRange, y: py + Math.sin(this.player.facing) * castRange };
+  }
+
   // What a mob should attack: the nearest player-side entity. Minions are
   // treated identically to the player — no taunt preference, just closest wins
   // (a stealthed player isn't a valid target).
@@ -400,9 +415,7 @@ export default class GameScene extends Phaser.Scene {
         break;
       }
       case 'blast': {
-        const t = this.nearestEnemy();
-        const tx = t ? t.x : this.player.x + Math.cos(this.player.facing) * 200;
-        const ty = t ? t.y : this.player.y + Math.sin(this.player.facing) * 200;
+        const { x: tx, y: ty } = this.aimPoint(def.range || 360);
         this.spawnBlastFx(tx, ty, def.radius, def.color);
         for (const e of this.enemies()) {
           if (Math.hypot(e.x - tx, e.y - ty) <= def.radius + e.radius) {
@@ -462,7 +475,8 @@ export default class GameScene extends Phaser.Scene {
         break;
       }
       case 'dot': {
-        const t = this.nearestEnemy(420);
+        const aim = this.aimPoint(420);
+        const t = this.nearestEnemyTo(aim.x, aim.y, 140);
         if (t) {
           this.dots.push({ target: t, dps: this.player.stats.magPower * def.intMult, remaining: def.duration, acc: 0 });
           this.spawnText(t.x, t.y - t.radius - 16, 'CURSED', '#c06cff');

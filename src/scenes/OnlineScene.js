@@ -111,11 +111,11 @@ export default class OnlineScene extends Phaser.Scene {
       if (this.settings && this.settings.open) return;
       switch (this.settings.actionFor(e.code)) {
         case 'attack': this.net.sendBasic(); break;
-        case 'skill1': this.net.sendCast(1); break;
-        case 'skill2': this.net.sendCast(2); break;
-        case 'skill3': this.net.sendCast(3); break;
-        case 'skill4': this.net.sendCast(4); break;
-        case 'skill5': this.net.sendCast(5); break;
+        case 'skill1': this.castSlot(1); break;
+        case 'skill2': this.castSlot(2); break;
+        case 'skill3': this.castSlot(3); break;
+        case 'skill4': this.castSlot(4); break;
+        case 'skill5': this.castSlot(5); break;
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
       }
@@ -194,6 +194,25 @@ export default class OnlineScene extends Phaser.Scene {
     if (snap.boss && snap.boss.alive) { const d = Math.hypot(snap.boss.x - x, snap.boss.y - y); if (d < bd) best = snap.boss; }
     return best;
   }
+
+  // World target for placed skills (blast/dot): the cursor in manual AIM, the
+  // nearest enemy in AUTO, or the aimed direction on touch. Sent with the cast;
+  // the server clamps it. Clamped to castRange here too for predictable feel.
+  aimPoint(castRange = 360) {
+    const px = this.localPos ? this.localPos.x : 0, py = this.localPos ? this.localPos.y : 0;
+    const snap = this.net.snapshot;
+    if (this.autoAim && snap) { const e = this.nearestEnemy(snap, px, py); if (e) return { x: e.x, y: e.y }; }
+    else if (!this.isTouch) {
+      const ptr = this.input.activePointer;
+      let dx = ptr.worldX - px, dy = ptr.worldY - py;
+      const d = Math.hypot(dx, dy) || 1;
+      if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
+      return { x: px + dx, y: py + dy };
+    }
+    return { x: px + Math.cos(this.facing) * castRange, y: py + Math.sin(this.facing) * castRange };
+  }
+
+  castSlot(slot) { const a = this.aimPoint(); this.net.sendCast(slot, a.x, a.y); }
 
   // --------------------------------------------------------------- entities --
   renderPlayers(snap) {
@@ -310,7 +329,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.skills.forEach((def, i) => {
       const slot = i + 1, x = startX + i * (boxW + gap) + boxW / 2;
       const box = this.add.rectangle(x, y, boxW, boxW, 0x1c2138, 0.95).setStrokeStyle(2, 0x3a4366).setDepth(60).setScrollFactor(0).setInteractive();
-      box.on('pointerdown', () => this.net.sendCast(slot));
+      box.on('pointerdown', () => this.castSlot(slot));
       this.add.text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, { fontFamily: 'Segoe UI', fontSize: '12px', fontStyle: 'bold', color: '#fff' }).setDepth(62).setScrollFactor(0);
       this.add.text(x, y + boxW / 2 - 11, def.name, { fontFamily: 'Segoe UI', fontSize: '8px', color: def.color, align: 'center', wordWrap: { width: boxW - 4 } }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
       const overlay = this.add.rectangle(x, y + boxW / 2, boxW, boxW, 0x000000, 0.65).setOrigin(0.5, 1).setDepth(61).setScrollFactor(0); overlay.height = 0;

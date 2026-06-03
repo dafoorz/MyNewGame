@@ -52,9 +52,9 @@ io.on('connection', (socket) => {
     if (room) room.doBasic(socket.id);
   });
 
-  socket.on('cast', ({ slot } = {}) => {
+  socket.on('cast', ({ slot, aimX, aimY } = {}) => {
     const room = rooms.get(currentCode);
-    if (room && slot >= 1 && slot <= 5) room.doCast(socket.id, slot);
+    if (room && slot >= 1 && slot <= 5) room.doCast(socket.id, slot, aimX, aimY);
   });
 
   socket.on('spend_stat', ({ attr } = {}) => {
