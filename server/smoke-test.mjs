@@ -65,6 +65,12 @@ if (!summoned) fail('necromancer summon produced no minions');
 console.log('  necromancer minions:', cSnap.minions.length);
 c.disconnect();
 
+// Dodge (universal slot 5): casting it puts slot 5 on cooldown and grants i-frames.
+b.emit('cast', { slot: 5 });
+const dodged = await waitFor(() => bSnap && bSnap.me && bSnap.me.cd && bSnap.me.cd[5] > 0, 2000);
+if (!dodged) fail('dodge (skill 5) did not trigger a cooldown');
+console.log(`  dodge cast: slot-5 cd ${bSnap.me.cd[5]}s`);
+
 // Saved progress: a client joins supplying saved progress; server restores it.
 const d = io(URL);
 let dSnap = null;

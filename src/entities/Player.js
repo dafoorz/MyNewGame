@@ -37,9 +37,10 @@ export default class Player {
     this.stealth = false;    // mobs won't aggro while stealthed
     this.stealthTimer = 0;
     this.nextHitCrit = 0;    // if >0, next damaging hit is a guaranteed crit at this multiplier
+    this.invulnTimer = 0;    // i-frames during a Dodge roll: takes no damage while > 0
 
-    // Skill cooldowns (seconds remaining), keyed by slot 1-4.
-    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    // Skill cooldowns (seconds remaining), keyed by slot 1-5.
+    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
     // --- visuals ---
     this.gfx = scene.add.graphics().setDepth(10);
@@ -57,7 +58,7 @@ export default class Player {
   // --- combat ---
 
   takeDamage(rawAmount) {
-    if (!this.alive) return 0;
+    if (!this.alive || this.invulnTimer > 0) return 0; // i-frames: dodge negates the hit
     const amount = Math.max(0, Math.round(rawAmount * (1 - this.damageReduction)));
     this.hp -= amount;
     this.hitFlash = 0.15;
@@ -155,6 +156,7 @@ export default class Player {
       this.stealthTimer -= dt;
       if (this.stealthTimer <= 0) this.stealth = false;
     }
+    if (this.invulnTimer > 0) this.invulnTimer -= dt;
     this.draw();
   }
 
@@ -190,6 +192,12 @@ export default class Player {
     if (this.shieldTimer > 0) {
       g.lineStyle(3, 0x66ccff, 0.9);
       g.strokeCircle(this.x, this.y, this.radius + 6);
+    }
+
+    // Dodge i-frame ring.
+    if (this.invulnTimer > 0) {
+      g.lineStyle(3, 0x5dd9ff, 0.9);
+      g.strokeCircle(this.x, this.y, this.radius + 11);
     }
 
     // Facing indicator.

@@ -206,7 +206,7 @@ export default class GameScene extends Phaser.Scene {
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,C');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -230,6 +230,7 @@ export default class GameScene extends Phaser.Scene {
         case 'skill2': this.useSkill(2); break;
         case 'skill3': this.useSkill(3); break;
         case 'skill4': this.useSkill(4); break;
+        case 'skill5': this.useSkill(5); break;
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
       }
@@ -444,6 +445,18 @@ export default class GameScene extends Phaser.Scene {
         this.player.y = Phaser.Math.Clamp(ny, b.y + this.player.radius, b.h - this.player.radius);
         this.spawnSwingArc(this.player, this.player.attackRange, 1.3);
         for (const e of this.enemies()) if (this.inArc(e, this.player.attackRange, 1.3)) this.applyPlayerDamage(e, 'phys', def.mult, true, 1);
+        break;
+      }
+      case 'dodge': {
+        const dist = def.distance * (this.basic.kind === 'ranged' ? 1.5 : 1); // ranged roll farther
+        const nx = this.player.x + Math.cos(this.player.facing) * dist;
+        const ny = this.player.y + Math.sin(this.player.facing) * dist;
+        const b = this.bounds;
+        this.player.x = Phaser.Math.Clamp(nx, b.x + this.player.radius, b.w - this.player.radius);
+        this.player.y = Phaser.Math.Clamp(ny, b.y + this.player.radius, b.h - this.player.radius);
+        this.player.invulnTimer = def.iframe;
+        this.spawnRing(this.player.x, this.player.y, this.player.radius + 16, def.color);
+        this.spawnText(this.player.x, this.player.y - 34, 'DODGE', def.color);
         break;
       }
       case 'dot': {

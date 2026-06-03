@@ -92,7 +92,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,C');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -115,6 +115,7 @@ export default class OnlineScene extends Phaser.Scene {
         case 'skill2': this.net.sendCast(2); break;
         case 'skill3': this.net.sendCast(3); break;
         case 'skill4': this.net.sendCast(4); break;
+        case 'skill5': this.net.sendCast(5); break;
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
       }
@@ -214,6 +215,7 @@ export default class OnlineScene extends Phaser.Scene {
         if (p.buff) { g.lineStyle(2, 0xffe066, 0.7); g.strokeCircle(e.rx, e.ry, 25); }
         g.lineStyle(2, isMe ? 0xffffff : 0xbfc8e0, 0.9); g.strokeCircle(e.rx, e.ry, 16);
         if (p.shield) { g.lineStyle(3, 0x66ccff, 0.9); g.strokeCircle(e.rx, e.ry, 22); }
+        if (p.invuln) { g.lineStyle(3, 0x5dd9ff, 0.9); g.strokeCircle(e.rx, e.ry, 27); }
         g.lineStyle(4, 0xffffff, 1); g.beginPath(); g.moveTo(e.rx, e.ry); g.lineTo(e.rx + Math.cos(facing) * 28, e.ry + Math.sin(facing) * 28); g.strokePath();
         e.label.setText(`${isMe ? p.name + ' (you)' : p.name}  Lv${p.level}`);
       }
