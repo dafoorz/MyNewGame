@@ -52,12 +52,13 @@ export default class Zone {
   spawnProjectile(pr) { pr.id = this.nextProjId++; this.projectiles.push(pr); }
   spawnMinion(owner, x, y, damage, maxHp, duration) { this.minions.push(new Minion(this.nextMinionId++, owner, x, y, damage, maxHp, duration, this.bounds)); }
 
-  // What a mob attacks: a minion decoy in range (taunt), else the nearest player.
+  // What a mob attacks: the nearest player-side entity. Minions are treated
+  // identically to players — no taunt preference, just closest wins.
   mobTarget(mob) {
-    let bm = null, bd = Infinity;
-    for (const mn of this.minions) { if (!mn.alive) continue; const d = Math.hypot(mn.x - mob.x, mn.y - mob.y); if (d < bd) { bd = d; bm = mn; } }
-    if (bm && bd <= mob.leashRange) return bm;
-    return this.nearestPlayer(mob.x, mob.y);
+    let best = null, bd = Infinity;
+    for (const p of this.players) { if (!p.alive) continue; const d = Math.hypot(p.x - mob.x, p.y - mob.y); if (d < bd) { bd = d; best = p; } }
+    for (const mn of this.minions) { if (!mn.alive) continue; const d = Math.hypot(mn.x - mob.x, mn.y - mob.y); if (d < bd) { bd = d; best = mn; } }
+    return best;
   }
 
   enemies() {
