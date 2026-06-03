@@ -72,6 +72,11 @@ io.on('connection', (socket) => {
     if (room) room.unequipItem(socket.id, slot);
   });
 
+  socket.on('discard', ({ itemId } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room) room.discardItem(socket.id, itemId);
+  });
+
   const leave = () => {
     const room = rooms.get(currentCode);
     if (!room) return;

@@ -49,6 +49,7 @@ export default class NetClient {
   spendStat(attr) { if (this.socket) this.socket.emit('spend_stat', { attr }); }
   sendEquip(itemId) { if (this.socket) this.socket.emit('equip', { itemId }); }
   sendUnequip(slot) { if (this.socket) this.socket.emit('unequip', { slot }); }
+  sendDiscard(itemId) { if (this.socket) this.socket.emit('discard', { itemId }); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
   close() { if (this.socket) { this.socket.emit('leave_party'); this.socket.disconnect(); } }

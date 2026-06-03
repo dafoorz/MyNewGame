@@ -99,6 +99,12 @@ e.emit('unequip', { slot: 'weapon' });
 const un = await waitFor(() => !eSnap.me.gear.weapon && eSnap.me.stats.INT === baseInt, 2000);
 if (!un) fail('unequip did not clear the slot / revert stats');
 console.log('  unequipped OK (stats reverted)');
+// Discard: removing the wand from the backpack frees the slot.
+const wand2 = eSnap.me.inventory.find((it) => it.base === 'wand');
+e.emit('discard', { itemId: wand2.id });
+const discarded = await waitFor(() => !eSnap.me.inventory.some((it) => it.id === wand2.id), 2000);
+if (!discarded) fail('discard did not remove the item from the backpack');
+console.log('  discarded OK (backpack freed)');
 e.disconnect();
 
 // Class restriction: a Mage must never be allowed to equip a sword.

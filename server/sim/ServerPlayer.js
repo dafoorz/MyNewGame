@@ -125,6 +125,13 @@ export default class ServerPlayer {
     return true;
   }
 
+  discard(itemId) {
+    const idx = this.inventory.findIndex((it) => it.id === itemId);
+    if (idx < 0) return false;
+    this.inventory.splice(idx, 1);
+    return true;
+  }
+
   // --- progression ---
   xpToNext() { return Math.floor(60 * Math.pow(1.25, this.level - 1)); }
   addXp(amount) {
