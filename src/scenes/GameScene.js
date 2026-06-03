@@ -101,6 +101,7 @@ export default class GameScene extends Phaser.Scene {
       }),
       onEquip: (itemId) => this.equipItem(itemId),
       onUnequip: (slot) => this.unequipItem(slot),
+      onDiscard: (itemId) => this.discardItem(itemId),
     });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
@@ -563,10 +564,14 @@ export default class GameScene extends Phaser.Scene {
     if (levels > 0) this.onLevelUp();
     // Loot: roll a drop scaled by the mob's level.
     const drop = rollDrop({ mobLevel: mob.level });
-    if (drop && this.inventory.length < INV_CAP) {
-      this.inventory.push(drop);
-      this.spawnText(mob.x, mob.y - 30, '✦ ' + drop.name, rarityColor(drop.rarity));
-      if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+    if (drop) {
+      if (this.inventory.length < INV_CAP) {
+        this.inventory.push(drop);
+        this.spawnText(mob.x, mob.y - 30, '✦ ' + drop.name, rarityColor(drop.rarity));
+        if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+      } else {
+        this.spawnText(mob.x, mob.y - 30, 'Backpack full!', '#ff7a7a');
+      }
     }
     this.persist();
     mob.destroy();
@@ -743,13 +748,17 @@ export default class GameScene extends Phaser.Scene {
       });
       if (wasAlive && !this.boss.alive) {
         this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
-        const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 }); // guaranteed high-rarity boss loot
-        if (this.inventory.length < INV_CAP) {
-          this.inventory.push(drop);
-          this.spawnText(this.player.x, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
-          if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
-          this.persist();
+        let full = false;
+        for (let i = 0; i < 2; i++) { // two guaranteed high-rarity boss drops
+          const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
+          if (this.inventory.length < INV_CAP) {
+            this.inventory.push(drop);
+            this.spawnText(this.player.x + (i ? 60 : -60), this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+          } else full = true;
         }
+        if (full) this.spawnText(this.player.x, this.player.y - 60, 'Backpack full — make room!', '#ff7a7a');
+        if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+        this.persist();
       }
     }
 
@@ -951,6 +960,14 @@ export default class GameScene extends Phaser.Scene {
     this.inventory.push(this.gear[slot]);
     this.gear[slot] = null;
     this.recomputeStats();
+    this.persist();
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+  }
+
+  discardItem(itemId) {
+    const idx = this.inventory.findIndex((it) => it.id === itemId);
+    if (idx < 0) return;
+    this.inventory.splice(idx, 1);
     this.persist();
     if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
   }

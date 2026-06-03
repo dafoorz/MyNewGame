@@ -212,6 +212,7 @@ export default class Zone {
       if (drop) {
         const killer = this.players.find((p) => p.id === m.lastAttacker) || this.players[0];
         if (killer && killer.addItem(drop)) this.addFx({ t: 'loot', x: m.x, y: m.y - 28, rarity: drop.rarity, name: drop.name });
+        else if (killer) this.addFx({ t: 'text', x: killer.x, y: killer.y - 34, msg: 'Backpack full!', color: '#ff7a7a' });
       }
       this.respawnQueue.push({ typeKey: m.typeKey, level: m.level, at: this.clock + 8 });
     }
@@ -221,9 +222,14 @@ export default class Zone {
   onBossDeath() {
     for (const p of this.players) {
       const levels = p.addXp(500); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: 500 }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
-      // Boss loot: every participant gets a guaranteed, high-rarity drop.
-      const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
-      if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x, y: p.y - 34, rarity: drop.rarity, name: drop.name });
+      // Boss loot: every participant gets 2 guaranteed, high-rarity drops.
+      let full = false;
+      for (let i = 0; i < 2; i++) {
+        const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
+        if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x + (i ? 24 : -24), y: p.y - 34, rarity: drop.rarity, name: drop.name });
+        else full = true;
+      }
+      if (full) this.addFx({ t: 'text', x: p.x, y: p.y - 54, msg: 'Backpack full — make room!', color: '#ff7a7a' });
     }
     this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'BOSS SLAIN!', color: '#7CFC9A', big: true });
     this.aggro = new AggroTable();

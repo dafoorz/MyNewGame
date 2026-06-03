@@ -56,6 +56,7 @@ export default class OnlineScene extends Phaser.Scene {
       getModel: () => this.me || {},
       onEquip: (itemId) => this.net.sendEquip(itemId),
       onUnequip: (slot) => this.net.sendUnequip(slot),
+      onDiscard: (itemId) => this.net.sendDiscard(itemId),
     });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('ClassSelectScene'); },

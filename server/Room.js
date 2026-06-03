@@ -82,6 +82,7 @@ export default class Room {
   spendStat(id, attr) { const p = this.players.get(id); if (p) p.spendStat(attr); }
   equipItem(id, itemId) { const p = this.players.get(id); if (p) p.equip(itemId); }
   unequipItem(id, slot) { const p = this.players.get(id); if (p) p.unequip(slot); }
+  discardItem(id, itemId) { const p = this.players.get(id); if (p) p.discard(itemId); }
 
   doBasic(id) {
     const p = this.players.get(id);

@@ -1,15 +1,22 @@
 import { CONFIG } from '../config.js';
 import {
-  EQUIP_SLOTS, STAT_KEYS, ITEM_BASES, rarityColor, gearBonus, canEquip,
+  EQUIP_SLOTS, STAT_KEYS, rarityColor, gearBonus, canEquip,
 } from '../items.js';
 
 // Inventory + Equipment page, shared by Solo (GameScene) and Online (OnlineScene).
 // It's purely a view: the owning scene supplies a data model via getModel() and
-// handles equip/unequip through callbacks (locally in solo, over the network in
-// online — where the server validates). Toggle with the inventory key or button.
+// performs equip/unequip/discard through callbacks (locally in solo, over the
+// network in online — where the server validates). Toggle with the inventory key
+// or button.
 //
-// Desktop: hover an item for details, click to equip/unequip.
-// Touch:   tap an item to see details + an Equip/Unequip button (no hover).
+// Click/tap an item to open a details popup with action buttons (Equip / Discard
+// for backpack items, Unequip for equipped slots). Works the same on mouse and
+// touch, so there's no reliance on hover.
+//
+//   new InventoryPanel(scene, {
+//     getModel:  () => ({ classKey, statPoints, baseStats, stats, inventory, gear }),
+//     onEquip:   (itemId) => {...}, onUnequip: (slot) => {...}, onDiscard: (itemId) => {...},
+//   })
 
 const SLOT_LABEL = { weapon: 'Weapon', helmet: 'Helmet', chest: 'Chest', gloves: 'Gloves', boots: 'Boots', accessory: 'Accessory' };
 const STAT_DESC = { STR: 'phys', DEX: 'crit/spd', INT: 'magic', VIT: 'health', AGI: 'move' };
@@ -20,8 +27,8 @@ export default class InventoryPanel {
     this.getModel = opts.getModel || (() => ({}));
     this.onEquip = opts.onEquip || (() => {});
     this.onUnequip = opts.onUnequip || (() => {});
+    this.onDiscard = opts.onDiscard || (() => {});
     this.open = false;
-    this.isTouch = scene.sys.game.device.input.touch || ('ontouchstart' in window);
 
     const cx = CONFIG.width / 2, cy = CONFIG.height / 2;
     this.cx = cx; this.cy = cy;
@@ -29,15 +36,14 @@ export default class InventoryPanel {
 
     const panel = scene.add.container(0, 0).setDepth(130).setScrollFactor(0).setVisible(false);
     this.panel = panel;
-    // Background also swallows stray taps and dismisses any open tooltip.
+    // Background also swallows stray taps and dismisses any open popup.
     const bg = scene.add.rectangle(cx, cy, this.W, this.H, 0x10131f, 0.98).setStrokeStyle(2, 0x3a4366).setScrollFactor(0).setInteractive();
     bg.on('pointerdown', () => this.hideTip());
     panel.add(bg);
     panel.add(scene.add.text(cx, cy - this.H / 2 + 18, 'Inventory & Equipment', {
       fontFamily: 'Segoe UI', fontSize: '17px', fontStyle: 'bold', color: '#ffd24a',
     }).setOrigin(0.5).setScrollFactor(0));
-    const hint = this.isTouch ? 'Tap an item for details · tap again or use the button to equip' : 'Hover for details · click an item to equip, a slot to unequip';
-    panel.add(scene.add.text(cx, cy + this.H / 2 - 16, hint, {
+    panel.add(scene.add.text(cx, cy + this.H / 2 - 16, 'Tap an item for details · Equip / Discard from the popup · ✕ or I to close', {
       fontFamily: 'Segoe UI', fontSize: '11px', color: '#8b93ad',
     }).setOrigin(0.5).setScrollFactor(0));
 
@@ -56,15 +62,20 @@ export default class InventoryPanel {
     // Dynamic content lives in its own container we wipe on each refresh.
     this.dyn = scene.add.container(0, 0).setDepth(131).setScrollFactor(0).setVisible(false);
 
-    // Reusable tooltip with an optional action button (Equip / Unequip).
+    // Reusable details popup with up to two action buttons.
     this.tip = scene.add.container(0, 0).setDepth(133).setScrollFactor(0).setVisible(false);
     this.tipBg = scene.add.rectangle(0, 0, 10, 10, 0x05070d, 0.98).setStrokeStyle(1, 0x4a5680).setOrigin(0, 0).setScrollFactor(0);
     this.tipText = scene.add.text(0, 0, '', { fontFamily: 'Consolas, monospace', fontSize: '12px', color: '#e6e9f2', lineSpacing: 2 }).setOrigin(0, 0).setScrollFactor(0);
-    this.tipBtn = scene.add.rectangle(0, 0, 150, 26, 0x2a6e3a, 1).setStrokeStyle(1, 0x4ad06a).setScrollFactor(0).setInteractive().setVisible(false);
-    this.tipBtnText = scene.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '13px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setVisible(false);
-    this.tipBtn.on('pointerdown', () => { const fn = this._tipAction; this.hideTip(); if (fn) { fn(); this.refresh(); } });
-    this.tip.add(this.tipBg); this.tip.add(this.tipText); this.tip.add(this.tipBtn); this.tip.add(this.tipBtnText);
-    this._tipAction = null;
+    this.tip.add(this.tipBg); this.tip.add(this.tipText);
+    this.tipButtons = [];
+    for (let i = 0; i < 2; i++) {
+      const r = scene.add.rectangle(0, 0, 150, 26, 0x2a6e3a, 1).setStrokeStyle(1, 0x4ad06a).setScrollFactor(0).setInteractive().setVisible(false);
+      const t = scene.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '13px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setVisible(false);
+      r.on('pointerdown', () => { const a = this._tipActions[i]; this.hideTip(); if (a) { a.fn(); this.refresh(); } });
+      this.tip.add(r); this.tip.add(t);
+      this.tipButtons.push({ r, t });
+    }
+    this._tipActions = [];
   }
 
   toggle() { this.open ? this.close() : this.show(); }
@@ -76,10 +87,11 @@ export default class InventoryPanel {
     return this.open && Math.abs(x - this.cx) <= this.W / 2 && Math.abs(y - this.cy) <= this.H / 2;
   }
 
-  // Show item details near (x,y). `action` (optional) = { label, fn } renders a
-  // tappable Equip/Unequip button inside the tooltip (used on touch).
-  showTip(item, x, y, action = null) {
+  // Show item details near (x,y) with optional action buttons (max 2):
+  // actions = [{ label, color?, fn }, ...].
+  showTip(item, x, y, actions = []) {
     if (!item) return;
+    this._tipActions = actions;
     const model = this.getModel();
     const lines = [item.name, `${SLOT_LABEL[item.slot] || item.slot} · ilvl ${item.ilvl}`, ''];
     for (const k of STAT_KEYS) if (item.stats[k]) lines.push(`+${item.stats[k]} ${k}`);
@@ -94,25 +106,28 @@ export default class InventoryPanel {
     if (model.classKey && !canEquip(model.classKey, item)) lines.push('', "Can't be used by this class");
     this.tipText.setText(lines.join('\n'));
 
-    const w = Math.max(this.tipText.width, action ? 150 : 0) + 16;
-    let h = this.tipText.height + 12;
-    if (action) { h += 34; this._tipAction = action.fn; } else this._tipAction = null;
-    this.tipBg.width = w; this.tipBg.height = h;
+    const w = Math.max(this.tipText.width, actions.length ? 150 : 0) + 16;
+    const textH = this.tipText.height + 12;
+    const h = textH + actions.length * 32;
 
     let px = x + 14, py = y + 10;
     if (px + w > CONFIG.width) px = x - w - 14;
     if (px < 0) px = 4;
     if (py + h > CONFIG.height) py = CONFIG.height - h - 6;
     if (py < 0) py = 4;
+    this.tipBg.width = w; this.tipBg.height = h;
     this.tipBg.setPosition(px, py);
     this.tipText.setPosition(px + 8, py + 6);
-    if (action) {
-      this.tipBtn.setPosition(px + w / 2, py + h - 18).setVisible(true);
-      this.tipBtnText.setText(action.label).setPosition(px + w / 2, py + h - 18).setVisible(true);
-    } else { this.tipBtn.setVisible(false); this.tipBtnText.setVisible(false); }
+    this.tipButtons.forEach((b, i) => {
+      if (i < actions.length) {
+        const by = py + textH + i * 32 + 13;
+        b.r.setFillStyle(actions[i].color != null ? actions[i].color : 0x2a6e3a).setPosition(px + w / 2, by).setVisible(true);
+        b.t.setText(actions[i].label).setPosition(px + w / 2, by).setVisible(true);
+      } else { b.r.setVisible(false); b.t.setVisible(false); }
+    });
     this.tip.setVisible(true);
   }
-  hideTip() { this.tip.setVisible(false); this.tipBtn.setVisible(false); this.tipBtnText.setVisible(false); this._tipAction = null; }
+  hideTip() { this.tip.setVisible(false); this.tipButtons.forEach((b) => { b.r.setVisible(false); b.t.setVisible(false); }); this._tipActions = []; }
 
   // Rebuild all dynamic rows from the current model.
   refresh() {
@@ -129,7 +144,7 @@ export default class InventoryPanel {
     const add = (o) => { this.dyn.add(o); return o; };
     const mkText = (x, y, str, color, size = 13, origin = 0) => add(s.add.text(x, y, str, { fontFamily: 'Consolas, monospace', fontSize: size + 'px', color }).setOrigin(origin, 0.5).setScrollFactor(0));
 
-    // --- Equipped slots (tap/click to unequip) ---
+    // --- Equipped slots (tap to open Unequip) ---
     EQUIP_SLOTS.forEach((slot, i) => {
       const y = top + 12 + i * 38;
       add(s.add.rectangle(cx - 230, y, 196, 32, 0x191d2e, 0.95).setStrokeStyle(1, 0x333a52).setScrollFactor(0));
@@ -138,19 +153,13 @@ export default class InventoryPanel {
       if (it) {
         const t = mkText(cx - 322, y + 7, this._clip(it.name, 22), rarityColor(it.rarity), 12);
         t.setInteractive({ useHandCursor: true });
-        if (!this.isTouch) {
-          t.on('pointerover', (p) => this.showTip(it, p.x, p.y));
-          t.on('pointerout', () => this.hideTip());
-          t.on('pointerdown', () => { this.onUnequip(slot); this.hideTip(); });
-        } else {
-          t.on('pointerdown', (p) => this.showTip(it, p.x, p.y, { label: 'Unequip', fn: () => this.onUnequip(slot) }));
-        }
+        t.on('pointerdown', (p) => this.showTip(it, p.x, p.y, [{ label: 'Unequip', color: 0x355a8a, fn: () => this.onUnequip(slot) }]));
       } else {
         mkText(cx - 322, y + 7, '— empty —', '#5a6178', 12);
       }
     });
 
-    // --- Backpack (two columns; tap/click to equip) ---
+    // --- Backpack (two columns; tap to open Equip / Discard) ---
     const colX = [cx - 128, cx + 18];
     const rows = 11, rowH = 30;
     inv.slice(0, rows * 2).forEach((it, i) => {
@@ -161,13 +170,12 @@ export default class InventoryPanel {
       const t = mkText(x + 4, y, `${this._clip(it.name, 16)}`, usable ? rarityColor(it.rarity) : '#6b7188', 11);
       t.setAlpha(usable ? 1 : 0.6);
       t.setInteractive({ useHandCursor: true });
-      if (!this.isTouch) {
-        t.on('pointerover', (p) => this.showTip(it, p.x, p.y));
-        t.on('pointerout', () => this.hideTip());
-        t.on('pointerdown', () => { if (usable) { this.onEquip(it.id); this.hideTip(); } });
-      } else {
-        t.on('pointerdown', (p) => this.showTip(it, p.x, p.y, usable ? { label: 'Equip', fn: () => this.onEquip(it.id) } : null));
-      }
+      t.on('pointerdown', (p) => {
+        const actions = [];
+        if (usable) actions.push({ label: 'Equip', color: 0x2a6e3a, fn: () => this.onEquip(it.id) });
+        actions.push({ label: 'Discard', color: 0x7a2a2a, fn: () => this.onDiscard(it.id) });
+        this.showTip(it, p.x, p.y, actions);
+      });
     });
     if (inv.length === 0) mkText(cx - 124, top + 6, 'Backpack is empty. Kill mobs for loot.', '#5a6178', 11);
     mkText(cx - 128, cy + this.H / 2 - 36, `${inv.length} item(s)`, '#7f8aa8', 11);
