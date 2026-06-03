@@ -65,6 +65,18 @@ if (!summoned) fail('necromancer summon produced no minions');
 console.log('  necromancer minions:', cSnap.minions.length);
 c.disconnect();
 
+// Saved progress: a client joins supplying saved progress; server restores it.
+const d = io(URL);
+let dSnap = null;
+d.on('snapshot', (s) => { dSnap = s; });
+await onConnect(d);
+d.emit('join_party', { code, name: 'Veteran', classKey: 'warrior', progress: { level: 5, xp: 40, statPoints: 2, stats: { STR: 20, DEX: 8, INT: 5, VIT: 18, AGI: 9 } } });
+await new Promise((res) => d.on('party_joined', res));
+const restored = await waitFor(() => dSnap && dSnap.me && dSnap.me.level === 5, 3000);
+if (!restored) fail('saved progress was not restored on join');
+console.log(`  restored progress: level ${dSnap.me.level}, STR ${dSnap.me.stats.STR}, points ${dSnap.me.statPoints}`);
+d.disconnect();
+
 // Leave handling: tank disconnects, mage should no longer see them.
 a.disconnect();
 await sleep(500);

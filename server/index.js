@@ -22,24 +22,24 @@ const rooms = new RoomManager(io);
 io.on('connection', (socket) => {
   let currentCode = null;
 
-  const joinRoom = (room, name, classKey) => {
+  const joinRoom = (room, name, classKey, progress) => {
     currentCode = room.code;
     socket.join(room.code);
-    const you = room.addPlayer(socket.id, name, classKey);
+    const you = room.addPlayer(socket.id, name, classKey, progress);
     socket.emit('party_joined', { code: room.code, youId: socket.id, zoneName: room.zoneName, roster: room.roster() });
     io.to(room.code).emit('roster', room.roster());
     return you;
   };
 
-  socket.on('create_party', ({ name, classKey } = {}) => {
+  socket.on('create_party', ({ name, classKey, progress } = {}) => {
     const room = rooms.create();
-    joinRoom(room, name, classKey);
+    joinRoom(room, name, classKey, progress);
   });
 
-  socket.on('join_party', ({ code, name, classKey } = {}) => {
+  socket.on('join_party', ({ code, name, classKey, progress } = {}) => {
     const room = rooms.get(code);
     if (!room) { socket.emit('join_error', { message: 'No party with that code.' }); return; }
-    joinRoom(room, name, classKey);
+    joinRoom(room, name, classKey, progress);
   });
 
   socket.on('input', ({ mx, my, facing } = {}) => {

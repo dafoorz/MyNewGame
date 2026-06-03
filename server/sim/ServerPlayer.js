@@ -65,6 +65,19 @@ export default class ServerPlayer {
   applyShield(reduction, duration) { this.damageReduction = reduction; this.shieldTimer = duration; }
   applyBuff(damageMult, speedMult, duration) { this.damageMult = damageMult; this.speedMult = speedMult; this.buffTimer = duration; }
 
+  // Restore saved progress supplied by the client on join (per-device save).
+  applyProgress(p) {
+    if (!p) return;
+    this.level = Math.max(1, p.level | 0);
+    this.xp = Math.max(0, p.xp | 0);
+    this.statPoints = Math.max(0, p.statPoints | 0);
+    if (p.stats) for (const k of ['STR', 'DEX', 'INT', 'VIT', 'AGI']) {
+      if (typeof p.stats[k] === 'number') this.stats[k] = Math.max(this.def.stats[k] || 0, p.stats[k] | 0);
+    }
+    this.recalc();
+    this.hp = this.maxHp;
+  }
+
   // --- progression ---
   xpToNext() { return Math.floor(60 * Math.pow(1.25, this.level - 1)); }
   addXp(amount) {
