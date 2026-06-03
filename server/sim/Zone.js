@@ -1,5 +1,6 @@
 import { ZONES } from '../../src/world/zones.js';
 import Mob from './Mob.js';
+import Minion from './Minion.js';
 import Boss from './Boss.js';
 import AggroTable from './AggroTable.js';
 
@@ -14,6 +15,7 @@ export default class Zone {
     this.bounds = { w: this.def.size.w, h: this.def.size.h };
     this.players = [];        // set by Room each tick
     this.mobs = [];
+    this.minions = [];
     this.projectiles = [];
     this.dots = [];
     this.fx = [];
@@ -21,6 +23,7 @@ export default class Zone {
     this.respawnQueue = [];
     this.nextMobId = 1;
     this.nextProjId = 1;
+    this.nextMinionId = 1;
 
     if (this.def.boss) { this.boss = new Boss(this.bounds); this.aggro = new AggroTable(); this._bossWasAlive = true; this.bossResetTimer = 0; }
     else { this.boss = null; this.aggro = null; }
@@ -47,6 +50,15 @@ export default class Zone {
 
   addFx(fx) { if (this.fx.length < 100) this.fx.push(fx); }
   spawnProjectile(pr) { pr.id = this.nextProjId++; this.projectiles.push(pr); }
+  spawnMinion(owner, x, y, damage, maxHp, duration) { this.minions.push(new Minion(this.nextMinionId++, owner, x, y, damage, maxHp, duration, this.bounds)); }
+
+  // What a mob attacks: a minion decoy in range (taunt), else the nearest player.
+  mobTarget(mob) {
+    let bm = null, bd = Infinity;
+    for (const mn of this.minions) { if (!mn.alive) continue; const d = Math.hypot(mn.x - mob.x, mn.y - mob.y); if (d < bd) { bd = d; bm = mn; } }
+    if (bm && bd <= mob.leashRange) return bm;
+    return this.nearestPlayer(mob.x, mob.y);
+  }
 
   enemies() {
     const list = this.mobs.filter((m) => m.alive);
@@ -90,14 +102,23 @@ export default class Zone {
         this.spawnProjectile({ team: 'enemy', x: fx, y: fy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, dmg, ttl: 3, r: 5, color: 0xff7b5a });
       },
     };
-    for (const m of this.mobs) { mobCtx.target = this.nearestPlayer(m.x, m.y); m.update(dt, mobCtx); }
+    for (const m of this.mobs) { mobCtx.target = this.mobTarget(m); m.update(dt, mobCtx); }
 
-    // boss
+    // minions (Necromancer pets): chase + melee enemies, credit their own threat
+    const minionCtx = {
+      nearestEnemy: (x, y, max) => this.nearestEnemy(x, y, max),
+      applyHit: (minion, enemy, dmg) => this.damageEnemy(enemy, dmg, false, minion),
+      ownerOf: (id) => this.playerById(id),
+    };
+    for (const mn of this.minions) mn.update(dt, minionCtx);
+
+    // boss — minions count as combatants so the boss can target/cleave them
     if (this.boss && this.boss.alive) {
-      this.boss.update(dt, this.players, this.aggro, (pl, amount) => {
-        const dealt = pl.takeDamage(amount);
-        this.addFx({ t: 'dmg', x: pl.x, y: pl.y - pl.radius, amount: dealt, enemy: true });
-        if (!pl.alive) this.aggro.remove(pl.id);
+      const combatants = [...this.players, ...this.minions.filter((m) => m.alive)];
+      this.boss.update(dt, combatants, this.aggro, (e, amount) => {
+        const dealt = e.takeDamage(amount);
+        this.addFx({ t: 'dmg', x: e.x, y: e.y - e.radius, amount: dealt, enemy: true });
+        if (!e.alive) this.aggro.remove(e.id);
       });
     } else if (this.boss) {
       if (this._bossWasAlive) { this._bossWasAlive = false; this.onBossDeath(); }
@@ -107,6 +128,12 @@ export default class Zone {
     this.updateDots(dt);
     this.updateProjectiles(dt);
     this.sweepDeadMobs();
+
+    // Drop expired/killed minions (and clear their threat).
+    if (this.minions.some((m) => !m.alive)) {
+      for (const m of this.minions) if (!m.alive && this.aggro) this.aggro.remove(m.id);
+      this.minions = this.minions.filter((m) => m.alive);
+    }
   }
 
   updateDots(dt) {
@@ -142,10 +169,10 @@ export default class Zone {
         if (consumed) continue;
       } else {
         let hit = false;
-        for (const p of this.players) {
-          if (p.alive && Math.hypot(pr.x - p.x, pr.y - p.y) <= p.radius + pr.r) {
-            const dealt = p.takeDamage(pr.dmg);
-            this.addFx({ t: 'dmg', x: p.x, y: p.y - p.radius, amount: dealt, enemy: true });
+        for (const target of [...this.players, ...this.minions]) {
+          if (target.alive && Math.hypot(pr.x - target.x, pr.y - target.y) <= target.radius + pr.r) {
+            const dealt = target.takeDamage(pr.dmg);
+            this.addFx({ t: 'dmg', x: target.x, y: target.y - target.radius, amount: dealt, enemy: true });
             hit = true; break;
           }
         }
@@ -186,6 +213,7 @@ export default class Zone {
     return {
       zoneKey: this.key,
       mobs: this.mobs.filter((m) => m.alive).map((m) => m.snapshot()),
+      minions: this.minions.filter((m) => m.alive).map((m) => m.snapshot()),
       boss: this.boss ? this.boss.snapshot() : null,
       projectiles: this.projectiles.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), r: p.r, color: p.color })),
       fx: this.fx,

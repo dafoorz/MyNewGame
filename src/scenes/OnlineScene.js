@@ -38,6 +38,7 @@ export default class OnlineScene extends Phaser.Scene {
 
     this.players = new Map();  // id -> render bundle
     this.mobsR = new Map();    // id -> render bundle
+    this.minionsR = new Map(); // id -> render bundle
 
     this.bossHpBar = new HealthBar(this, CONFIG.width / 2, 40, 620, 22, { depth: 60, fixed: true });
     this.bossNameText = this.add.text(CONFIG.width / 2, 18, '', { fontFamily: 'Segoe UI', fontSize: '15px', color: '#ffd24a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
@@ -149,6 +150,7 @@ export default class OnlineScene extends Phaser.Scene {
 
     this.renderPlayers(snap);
     this.renderMobs(snap.mobs);
+    this.renderMinions(snap.minions);
     this.renderBoss(snap.boss);
     this.renderProjectiles(snap.projectiles);
     this.consumeFx(snap.fx);
@@ -207,6 +209,23 @@ export default class OnlineScene extends Phaser.Scene {
       e.label.setPosition(e.rx, e.ry - t.radius - 20); e.hpBar.setPosition(e.rx, e.ry - t.radius - 9); e.hpBar.setValue(m.hp / m.maxHp);
     }
     for (const [id, e] of this.mobsR) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.mobsR.delete(id); }
+  }
+
+  renderMinions(list) {
+    const seen = new Set();
+    for (const m of list || []) {
+      seen.add(m.id);
+      let e = this.minionsR.get(m.id);
+      if (!e) { e = { gfx: this.add.graphics().setDepth(8), rx: m.x, ry: m.y }; this.minionsR.set(m.id, e); }
+      e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
+      const g = e.gfx; g.clear();
+      g.fillStyle(0x9ad17a, 1); g.fillCircle(e.rx, e.ry, 10);
+      g.lineStyle(2, 0x3a5a2a, 1); g.strokeCircle(e.rx, e.ry, 10);
+      const bw = 24;
+      g.fillStyle(0x220000, 1); g.fillRect(e.rx - bw / 2, e.ry - 18, bw, 4);
+      g.fillStyle(0x66ff44, 1); g.fillRect(e.rx - bw / 2, e.ry - 18, bw * (m.hp / m.maxHp), 4);
+    }
+    for (const [id, e] of this.minionsR) if (!seen.has(id)) { e.gfx.destroy(); this.minionsR.delete(id); }
   }
 
   renderBoss(b) {

@@ -51,6 +51,20 @@ clearInterval(fight);
 if (!gotXp) fail('no XP gained from fighting mobs');
 console.log(`  mage gained XP (level ${bSnap.me.level}, xp ${bSnap.me.xp})`);
 
+// Necromancer minions: join, summon (Raise Dead), confirm minions appear.
+const c = io(URL);
+let cSnap = null;
+c.on('snapshot', (s) => { cSnap = s; });
+await onConnect(c);
+c.emit('join_party', { code, name: 'Necro', classKey: 'necromancer' });
+await new Promise((res) => c.on('party_joined', res));
+await sleep(300);
+c.emit('cast', { slot: 1 }); // Raise Dead
+const summoned = await waitFor(() => cSnap && cSnap.minions && cSnap.minions.length > 0, 3000);
+if (!summoned) fail('necromancer summon produced no minions');
+console.log('  necromancer minions:', cSnap.minions.length);
+c.disconnect();
+
 // Leave handling: tank disconnects, mage should no longer see them.
 a.disconnect();
 await sleep(500);

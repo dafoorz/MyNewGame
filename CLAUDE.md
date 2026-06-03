@@ -82,8 +82,6 @@ src/
 
 ## Next / TODO ideas
 
-- Server-side Necromancer minions online (currently Raise Dead is a temp damage
-  buff in `server/sim/skills.js`).
 - Party loot / shared drops.
 - "Leave party" button + return-to-lobby flow in `OnlineScene`.
 - Reconnect handling; spectate for downed players.
