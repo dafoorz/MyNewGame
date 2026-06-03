@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import {
-  EQUIP_SLOTS, STAT_KEYS, ITEM_BASES, rarityColor, gearBonus, itemPower, canEquip,
+  EQUIP_SLOTS, STAT_KEYS, ITEM_BASES, rarityColor, gearBonus, canEquip,
 } from '../items.js';
 
 // Inventory + Equipment page, shared by Solo (GameScene) and Online (OnlineScene).
@@ -8,11 +8,8 @@ import {
 // handles equip/unequip through callbacks (locally in solo, over the network in
 // online — where the server validates). Toggle with the inventory key or button.
 //
-//   new InventoryPanel(scene, {
-//     getModel: () => ({ classKey, statPoints, baseStats, stats, inventory, gear }),
-//     onEquip:  (itemId) => {...},
-//     onUnequip:(slot)   => {...},
-//   })
+// Desktop: hover an item for details, click to equip/unequip.
+// Touch:   tap an item to see details + an Equip/Unequip button (no hover).
 
 const SLOT_LABEL = { weapon: 'Weapon', helmet: 'Helmet', chest: 'Chest', gloves: 'Gloves', boots: 'Boots', accessory: 'Accessory' };
 const STAT_DESC = { STR: 'phys', DEX: 'crit/spd', INT: 'magic', VIT: 'health', AGI: 'move' };
@@ -24,6 +21,7 @@ export default class InventoryPanel {
     this.onEquip = opts.onEquip || (() => {});
     this.onUnequip = opts.onUnequip || (() => {});
     this.open = false;
+    this.isTouch = scene.sys.game.device.input.touch || ('ontouchstart' in window);
 
     const cx = CONFIG.width / 2, cy = CONFIG.height / 2;
     this.cx = cx; this.cy = cy;
@@ -31,13 +29,23 @@ export default class InventoryPanel {
 
     const panel = scene.add.container(0, 0).setDepth(130).setScrollFactor(0).setVisible(false);
     this.panel = panel;
-    panel.add(scene.add.rectangle(cx, cy, this.W, this.H, 0x10131f, 0.97).setStrokeStyle(2, 0x3a4366).setScrollFactor(0));
+    // Background also swallows stray taps and dismisses any open tooltip.
+    const bg = scene.add.rectangle(cx, cy, this.W, this.H, 0x10131f, 0.98).setStrokeStyle(2, 0x3a4366).setScrollFactor(0).setInteractive();
+    bg.on('pointerdown', () => this.hideTip());
+    panel.add(bg);
     panel.add(scene.add.text(cx, cy - this.H / 2 + 18, 'Inventory & Equipment', {
       fontFamily: 'Segoe UI', fontSize: '17px', fontStyle: 'bold', color: '#ffd24a',
     }).setOrigin(0.5).setScrollFactor(0));
-    panel.add(scene.add.text(cx, cy + this.H / 2 - 16, 'Click a backpack item to equip · click a slot to unequip · I / button to close', {
+    const hint = this.isTouch ? 'Tap an item for details · tap again or use the button to equip' : 'Hover for details · click an item to equip, a slot to unequip';
+    panel.add(scene.add.text(cx, cy + this.H / 2 - 16, hint, {
       fontFamily: 'Segoe UI', fontSize: '11px', color: '#8b93ad',
     }).setOrigin(0.5).setScrollFactor(0));
+
+    // Close (✕) button — important on touch where there's no Esc key.
+    const closeBg = scene.add.rectangle(cx + this.W / 2 - 20, cy - this.H / 2 + 18, 28, 28, 0x3a2030, 0.95).setStrokeStyle(1, 0xff7a7a).setScrollFactor(0).setInteractive();
+    closeBg.on('pointerdown', () => this.close());
+    panel.add(closeBg);
+    panel.add(scene.add.text(cx + this.W / 2 - 20, cy - this.H / 2 + 17, '✕', { fontFamily: 'Segoe UI', fontSize: '16px', fontStyle: 'bold', color: '#ff9a9a' }).setOrigin(0.5).setScrollFactor(0));
 
     // Column headers.
     const top = cy - this.H / 2 + 44;
@@ -48,29 +56,33 @@ export default class InventoryPanel {
     // Dynamic content lives in its own container we wipe on each refresh.
     this.dyn = scene.add.container(0, 0).setDepth(131).setScrollFactor(0).setVisible(false);
 
-    // Reusable tooltip.
+    // Reusable tooltip with an optional action button (Equip / Unequip).
     this.tip = scene.add.container(0, 0).setDepth(133).setScrollFactor(0).setVisible(false);
-    this.tipBg = scene.add.rectangle(0, 0, 10, 10, 0x05070d, 0.97).setStrokeStyle(1, 0x4a5680).setOrigin(0, 0).setScrollFactor(0);
+    this.tipBg = scene.add.rectangle(0, 0, 10, 10, 0x05070d, 0.98).setStrokeStyle(1, 0x4a5680).setOrigin(0, 0).setScrollFactor(0);
     this.tipText = scene.add.text(0, 0, '', { fontFamily: 'Consolas, monospace', fontSize: '12px', color: '#e6e9f2', lineSpacing: 2 }).setOrigin(0, 0).setScrollFactor(0);
-    this.tip.add(this.tipBg); this.tip.add(this.tipText);
+    this.tipBtn = scene.add.rectangle(0, 0, 150, 26, 0x2a6e3a, 1).setStrokeStyle(1, 0x4ad06a).setScrollFactor(0).setInteractive().setVisible(false);
+    this.tipBtnText = scene.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '13px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5).setScrollFactor(0).setVisible(false);
+    this.tipBtn.on('pointerdown', () => { const fn = this._tipAction; this.hideTip(); if (fn) { fn(); this.refresh(); } });
+    this.tip.add(this.tipBg); this.tip.add(this.tipText); this.tip.add(this.tipBtn); this.tip.add(this.tipBtnText);
+    this._tipAction = null;
   }
 
   toggle() { this.open ? this.close() : this.show(); }
   show() { this.open = true; this.panel.setVisible(true); this.dyn.setVisible(true); this.refresh(); }
-  close() { this.open = false; this.panel.setVisible(false); this.dyn.setVisible(false); this.tip.setVisible(false); }
+  close() { this.open = false; this.panel.setVisible(false); this.dyn.setVisible(false); this.hideTip(); }
 
   // True if a screen point is over the panel (so the scene can swallow the click).
   contains(x, y) {
     return this.open && Math.abs(x - this.cx) <= this.W / 2 && Math.abs(y - this.cy) <= this.H / 2;
   }
 
-  showTip(item, x, y) {
+  // Show item details near (x,y). `action` (optional) = { label, fn } renders a
+  // tappable Equip/Unequip button inside the tooltip (used on touch).
+  showTip(item, x, y, action = null) {
     if (!item) return;
-    const base = ITEM_BASES[item.base] || {};
     const model = this.getModel();
     const lines = [item.name, `${SLOT_LABEL[item.slot] || item.slot} · ilvl ${item.ilvl}`, ''];
     for (const k of STAT_KEYS) if (item.stats[k]) lines.push(`+${item.stats[k]} ${k}`);
-    // Compare against whatever is equipped in that slot.
     const equipped = model.gear ? model.gear[item.slot] : null;
     if (equipped && equipped.id !== item.id) {
       lines.push('', `vs equipped (${equipped.name}):`);
@@ -81,16 +93,26 @@ export default class InventoryPanel {
     }
     if (model.classKey && !canEquip(model.classKey, item)) lines.push('', "Can't be used by this class");
     this.tipText.setText(lines.join('\n'));
-    this.tipText.setColor('#e6e9f2');
-    this.tipBg.width = this.tipText.width + 16;
-    this.tipBg.height = this.tipText.height + 12;
+
+    const w = Math.max(this.tipText.width, action ? 150 : 0) + 16;
+    let h = this.tipText.height + 12;
+    if (action) { h += 34; this._tipAction = action.fn; } else this._tipAction = null;
+    this.tipBg.width = w; this.tipBg.height = h;
+
     let px = x + 14, py = y + 10;
-    if (px + this.tipBg.width > CONFIG.width) px = x - this.tipBg.width - 14;
-    if (py + this.tipBg.height > CONFIG.height) py = CONFIG.height - this.tipBg.height - 6;
-    this.tipBg.setPosition(px, py); this.tipText.setPosition(px + 8, py + 6);
+    if (px + w > CONFIG.width) px = x - w - 14;
+    if (px < 0) px = 4;
+    if (py + h > CONFIG.height) py = CONFIG.height - h - 6;
+    if (py < 0) py = 4;
+    this.tipBg.setPosition(px, py);
+    this.tipText.setPosition(px + 8, py + 6);
+    if (action) {
+      this.tipBtn.setPosition(px + w / 2, py + h - 18).setVisible(true);
+      this.tipBtnText.setText(action.label).setPosition(px + w / 2, py + h - 18).setVisible(true);
+    } else { this.tipBtn.setVisible(false); this.tipBtnText.setVisible(false); }
     this.tip.setVisible(true);
   }
-  hideTip() { this.tip.setVisible(false); }
+  hideTip() { this.tip.setVisible(false); this.tipBtn.setVisible(false); this.tipBtnText.setVisible(false); this._tipAction = null; }
 
   // Rebuild all dynamic rows from the current model.
   refresh() {
@@ -107,7 +129,7 @@ export default class InventoryPanel {
     const add = (o) => { this.dyn.add(o); return o; };
     const mkText = (x, y, str, color, size = 13, origin = 0) => add(s.add.text(x, y, str, { fontFamily: 'Consolas, monospace', fontSize: size + 'px', color }).setOrigin(origin, 0.5).setScrollFactor(0));
 
-    // --- Equipped slots (click to unequip) ---
+    // --- Equipped slots (tap/click to unequip) ---
     EQUIP_SLOTS.forEach((slot, i) => {
       const y = top + 12 + i * 38;
       add(s.add.rectangle(cx - 230, y, 196, 32, 0x191d2e, 0.95).setStrokeStyle(1, 0x333a52).setScrollFactor(0));
@@ -116,15 +138,19 @@ export default class InventoryPanel {
       if (it) {
         const t = mkText(cx - 322, y + 7, this._clip(it.name, 22), rarityColor(it.rarity), 12);
         t.setInteractive({ useHandCursor: true });
-        t.on('pointerover', (p) => this.showTip(it, p.x, p.y));
-        t.on('pointerout', () => this.hideTip());
-        t.on('pointerdown', () => { this.onUnequip(slot); this.hideTip(); });
+        if (!this.isTouch) {
+          t.on('pointerover', (p) => this.showTip(it, p.x, p.y));
+          t.on('pointerout', () => this.hideTip());
+          t.on('pointerdown', () => { this.onUnequip(slot); this.hideTip(); });
+        } else {
+          t.on('pointerdown', (p) => this.showTip(it, p.x, p.y, { label: 'Unequip', fn: () => this.onUnequip(slot) }));
+        }
       } else {
         mkText(cx - 322, y + 7, '— empty —', '#5a6178', 12);
       }
     });
 
-    // --- Backpack (two columns; click to equip) ---
+    // --- Backpack (two columns; tap/click to equip) ---
     const colX = [cx - 128, cx + 18];
     const rows = 11, rowH = 30;
     inv.slice(0, rows * 2).forEach((it, i) => {
@@ -135,9 +161,13 @@ export default class InventoryPanel {
       const t = mkText(x + 4, y, `${this._clip(it.name, 16)}`, usable ? rarityColor(it.rarity) : '#6b7188', 11);
       t.setAlpha(usable ? 1 : 0.6);
       t.setInteractive({ useHandCursor: true });
-      t.on('pointerover', (p) => this.showTip(it, p.x, p.y));
-      t.on('pointerout', () => this.hideTip());
-      t.on('pointerdown', () => { if (usable) { this.onEquip(it.id); this.hideTip(); } });
+      if (!this.isTouch) {
+        t.on('pointerover', (p) => this.showTip(it, p.x, p.y));
+        t.on('pointerout', () => this.hideTip());
+        t.on('pointerdown', () => { if (usable) { this.onEquip(it.id); this.hideTip(); } });
+      } else {
+        t.on('pointerdown', (p) => this.showTip(it, p.x, p.y, usable ? { label: 'Equip', fn: () => this.onEquip(it.id) } : null));
+      }
     });
     if (inv.length === 0) mkText(cx - 124, top + 6, 'Backpack is empty. Kill mobs for loot.', '#5a6178', 11);
     mkText(cx - 128, cy + this.H / 2 - 36, `${inv.length} item(s)`, '#7f8aa8', 11);
@@ -147,8 +177,7 @@ export default class InventoryPanel {
       const y = top + 12 + i * 34;
       const b = base[k] || 0, g = gb[k] || 0;
       mkText(cx + 168, y, k, '#c9d2e6', 13);
-      const gearStr = g > 0 ? `+${g}` : '0';
-      mkText(cx + 318, y, `${b} ${g > 0 ? '+' + g : ''} = ${b + g}`, g > 0 ? '#7CFC9A' : '#9aa3bd', 12, 1);
+      mkText(cx + 318, y, `${b}${g > 0 ? ' +' + g : ''} = ${b + g}`, g > 0 ? '#7CFC9A' : '#9aa3bd', 12, 1);
       mkText(cx + 168, y + 13, STAT_DESC[k], '#5a6178', 9);
     });
     if (m.statPoints > 0) mkText(cx + 168, top + 12 + 5 * 34 + 6, `${m.statPoints} unspent point(s) — press C`, '#ffd24a', 11);
