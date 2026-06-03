@@ -297,7 +297,7 @@ export default class GameScene extends Phaser.Scene {
   // `source` is the attacker credited with threat (defaults to the player).
   damageEnemy(enemy, amount, crit, threatMult = 1, source = this.player) {
     if (enemy === this.boss) {
-      this.boss.takeDamage(amount);
+      this.boss.takeDamage(amount, source === this.mage ? 'Ally' : 'You');
       this.aggro.add(source, amount * (source.threatMultiplier || 1) * threatMult);
     } else {
       enemy.takeDamage(amount);
@@ -624,7 +624,7 @@ export default class GameScene extends Phaser.Scene {
         boss: this.boss,
         telegraph: this.boss.telegraph,
         onCast: (amount, crit) => {
-          this.boss.takeDamage(amount);
+          this.boss.takeDamage(amount, 'Ally');
           this.aggro.add(this.mage, amount * this.mage.threatMultiplier);
           this.spawnText(this.boss.x, this.boss.y - this.boss.radius, amount, crit ? '#ffe066' : '#fff', crit);
         },

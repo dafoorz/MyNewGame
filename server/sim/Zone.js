@@ -25,7 +25,7 @@ export default class Zone {
     this.nextProjId = 1;
     this.nextMinionId = 1;
 
-    if (this.def.boss) { this.boss = new Boss(this.bounds); this.aggro = new AggroTable(); this._bossWasAlive = true; this.bossResetTimer = 0; }
+    if (this.def.boss) { this.boss = new Boss(this.bounds); this.aggro = new AggroTable(); this._bossWasAlive = true; this.bossResetTimer = 0; this.bossDmg = new Map(); this.bossFightStart = 0; }
     else { this.boss = null; this.aggro = null; }
 
     if (this.def.mobTypes) for (let i = 0; i < this.def.mobCount; i++) this.spawnMob();
@@ -78,8 +78,15 @@ export default class Zone {
 
   // Damage an enemy (mob or the boss) and credit threat to the attacker.
   damageEnemy(enemy, amount, crit, attacker, threatMult = 1) {
-    if (enemy === this.boss) { this.boss.takeDamage(amount); if (attacker) this.aggro.add(attacker.id, amount * attacker.threatMultiplier * threatMult); }
-    else enemy.takeDamage(amount);
+    if (enemy === this.boss) {
+      this.boss.takeDamage(amount);
+      if (attacker) {
+        this.aggro.add(attacker.id, amount * attacker.threatMultiplier * threatMult);
+        // Per-player DPS: credit the owning player (minions credit their owner).
+        const owner = attacker.owner != null ? this.playerById(attacker.owner) : attacker;
+        if (owner) { if (this.bossFightStart === 0) this.bossFightStart = this.clock; const rec = this.bossDmg.get(owner.id) || { name: owner.name, dmg: 0 }; rec.name = owner.name; rec.dmg += amount; this.bossDmg.set(owner.id, rec); }
+      }
+    } else enemy.takeDamage(amount);
     this.addFx({ t: 'dmg', x: enemy.x, y: enemy.y - enemy.radius, amount, crit: !!crit });
   }
 
@@ -204,17 +211,24 @@ export default class Zone {
     this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'BOSS SLAIN!', color: '#7CFC9A', big: true });
     this.aggro = new AggroTable();
     this.bossResetTimer = 10;
+    this.bossDmg.clear(); this.bossFightStart = 0;
   }
   resetBoss() { this.boss = new Boss(this.bounds); this._bossWasAlive = true; this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'The Colossus rises again...', color: '#ffd24a', big: true }); }
 
   playerById(id) { return this.players.find((p) => p.id === id) || null; }
+
+  bossDpsRows() {
+    const elapsed = this.clock - this.bossFightStart;
+    if (this.bossFightStart === 0 || elapsed < 0.5) return [];
+    return [...this.bossDmg.values()].map((r) => ({ name: r.name, dps: Math.round(r.dmg / elapsed) })).sort((a, b) => b.dps - a.dps);
+  }
 
   snapshot() {
     return {
       zoneKey: this.key,
       mobs: this.mobs.filter((m) => m.alive).map((m) => m.snapshot()),
       minions: this.minions.filter((m) => m.alive).map((m) => m.snapshot()),
-      boss: this.boss ? this.boss.snapshot() : null,
+      boss: this.boss ? { ...this.boss.snapshot(), dps: this.bossDpsRows() } : null,
       projectiles: this.projectiles.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), r: p.r, color: p.color })),
       fx: this.fx,
     };

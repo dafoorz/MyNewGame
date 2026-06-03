@@ -42,8 +42,8 @@ export default class Boss {
     this.hp = this.maxHp;
     this.alive = true;
 
-    // DPS meter: total damage taken + when the fight started (first hit).
-    this.dmgTaken = 0;
+    // DPS meter: damage taken per source + when the fight started (first hit).
+    this.dmgBySource = new Map();
     this.combatStart = 0;
 
     this.speed = 95;
@@ -87,23 +87,25 @@ export default class Boss {
       .setDepth(61)
       .setScrollFactor(0);
     this.dpsText = scene.add
-      .text(CONFIG.width / 2 + 310, 40, '', {
+      .text(CONFIG.width / 2, 56, '', {
         fontFamily: 'Consolas, monospace',
         fontSize: '12px',
         color: '#ff9a5a',
         fontStyle: 'bold',
+        align: 'center',
+        lineSpacing: 2,
         stroke: '#000',
         strokeThickness: 3,
       })
-      .setOrigin(1, 0.5)
+      .setOrigin(0.5, 0)
       .setDepth(61)
       .setScrollFactor(0);
   }
 
-  takeDamage(amount) {
+  takeDamage(amount, source = 'You') {
     if (!this.alive) return;
     if (this.combatStart === 0) this.combatStart = this.scene.time.now;
-    this.dmgTaken += amount;
+    this.dmgBySource.set(source, (this.dmgBySource.get(source) || 0) + amount);
     this.hp -= amount;
     if (this.hp <= 0) {
       this.hp = 0;
@@ -307,8 +309,10 @@ export default class Boss {
     this.hpText.setText(`${Math.ceil(this.hp)} / ${this.maxHp}`);
     if (this.combatStart > 0) {
       const elapsed = (this.scene.time.now - this.combatStart) / 1000;
-      const dps = elapsed > 0.5 ? Math.round(this.dmgTaken / elapsed) : 0;
-      this.dpsText.setText(`DPS ${dps.toLocaleString()}`);
+      const rows = [...this.dmgBySource.entries()]
+        .map(([name, dmg]) => ({ name, dps: elapsed > 0.5 ? Math.round(dmg / elapsed) : 0 }))
+        .sort((a, b) => b.dps - a.dps);
+      this.dpsText.setText(rows.map((r) => `${r.name}: ${r.dps.toLocaleString()} dps`).join('\n'));
     }
   }
 
