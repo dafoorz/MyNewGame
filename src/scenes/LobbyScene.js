@@ -26,33 +26,25 @@ export default class LobbyScene extends Phaser.Scene {
     this.status = this.add.text(cx, 560, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
 
     this.formEl = null;
-    this.confirmBtn = null;
     this.mode = null;
   }
 
   showForm(mode) {
     this.mode = mode;
     if (this.formEl) this.formEl.destroy();
-    if (this.confirmBtn) { this.confirmBtn.forEach((o) => o.destroy()); this.confirmBtn = null; }
 
     const cx = CONFIG.width / 2;
     const showCode = mode === 'join';
+    const label = mode === 'create' ? 'CREATE → pick class' : 'JOIN → pick class';
 
     const form = document.createElement('div');
-    form.style.cssText = 'display:flex;flex-direction:column;gap:8px;width:340px;';
+    form.style.cssText = 'display:flex;flex-direction:column;gap:10px;width:340px;';
     form.innerHTML = `
       <input id="pname" maxlength="16" placeholder="Your name" style="${INPUT_CSS}" />
-      ${showCode ? `<input id="pcode" maxlength="4" placeholder="Party code (4 letters)" style="${INPUT_CSS};text-transform:uppercase" />` : ''}`;
-    this.formEl = this.add.dom(cx, showCode ? 440 : 430, form);
-
-    const label = mode === 'create' ? 'CREATE → pick class' : 'JOIN → pick class';
-    const cy = showCode ? 510 : 490;
-    const r = this.add.rectangle(cx, cy, 220, 46, 0x3a4f8a, 1).setStrokeStyle(2, 0xffffff, 0.4).setInteractive({ useHandCursor: true });
-    const t = this.add.text(cx, cy, label, { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5);
-    r.on('pointerover', () => r.setStrokeStyle(3, 0xffffff, 0.9));
-    r.on('pointerout',  () => r.setStrokeStyle(2, 0xffffff, 0.4));
-    r.on('pointerdown', () => this.next());
-    this.confirmBtn = [r, t];
+      ${showCode ? `<input id="pcode" maxlength="4" placeholder="Party code (4 letters)" style="${INPUT_CSS};text-transform:uppercase" />` : ''}
+      <button id="pgo" style="${BTN_CSS}">${label}</button>`;
+    this.formEl = this.add.dom(cx, showCode ? 430 : 415, form);
+    form.querySelector('#pgo').addEventListener('click', () => this.next());
 
     this.status.setText('');
     setTimeout(() => { const el = form.querySelector('#pname'); if (el) el.focus(); }, 80);
@@ -79,3 +71,4 @@ export default class LobbyScene extends Phaser.Scene {
 }
 
 const INPUT_CSS = 'padding:10px;border-radius:6px;border:1px solid #3a4366;background:#10131f;color:#e6e9f2;font-size:15px;font-family:Segoe UI,sans-serif;outline:none';
+const BTN_CSS = 'padding:12px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:#3a4f8a;color:#fff;font-size:15px;font-weight:bold;font-family:Segoe UI,sans-serif;cursor:pointer';
