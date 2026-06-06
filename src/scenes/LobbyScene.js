@@ -3,9 +3,6 @@ import { CLASSES } from '../classes/classes.js';
 import NetClient from '../net/NetClient.js';
 import { loadProgress } from '../progress.js';
 
-// After choosing a class: play solo (the original offline game) or go online
-// (create/join a party on the server). Solo never creates a NetClient.
-
 export default class LobbyScene extends Phaser.Scene {
   constructor() { super('LobbyScene'); }
 
@@ -24,39 +21,63 @@ export default class LobbyScene extends Phaser.Scene {
       this.scene.start('GameScene', { classKey: this.classKey });
     });
 
-    // Online inputs (DOM so they work on mobile too).
     this.add.text(cx, 250, '— or play online with friends —', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#9aa6c4' }).setOrigin(0.5);
+
+    this.btnCreate = this.makeButton(cx - 95, 300, 170, 50, 'CREATE PARTY', 0x3a4f8a, () => this.showForm('create'));
+    this.btnJoin   = this.makeButton(cx + 95, 300, 170, 50, 'JOIN PARTY',   0x3a4f8a, () => this.showForm('join'));
+
+    this.makeButton(cx, 380, 200, 40, '← Back', 0x33384a, () => this.scene.start('ClassSelectScene'));
+
+    this.status = this.add.text(cx, 540, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
+
+    this.formEl = null;
+    this.confirmBtn = null;
+    this.mode = null;
+  }
+
+  showForm(mode) {
+    this.mode = mode;
+    if (this.formEl) this.formEl.destroy();
+    if (this.confirmBtn) { this.confirmBtn.forEach(o => o.destroy()); this.confirmBtn = null; }
+
+    const cx = CONFIG.width / 2;
+    const showCode = mode === 'join';
 
     const form = document.createElement('div');
     form.style.cssText = 'display:flex;flex-direction:column;gap:8px;width:340px;';
     form.innerHTML = `
       <input id="pname" maxlength="16" placeholder="Your name" style="${INPUT_CSS}" />
-      <input id="pcode" maxlength="4" placeholder="Party code (to join)" style="${INPUT_CSS};text-transform:uppercase" />`;
-    this.formEl = this.add.dom(cx, 320, form);
+      ${showCode ? `<input id="pcode" maxlength="4" placeholder="Party code (4 letters)" style="${INPUT_CSS};text-transform:uppercase" />` : ''}`;
+    this.formEl = this.add.dom(cx, showCode ? 460 : 450, form);
 
-    this.makeButton(cx - 95, 400, 170, 50, 'CREATE PARTY', 0x3a4f8a, () => this.go('create'));
-    this.makeButton(cx + 95, 400, 170, 50, 'JOIN PARTY', 0x3a4f8a, () => this.go('join'));
+    const label = mode === 'create' ? 'CREATE →' : 'JOIN →';
+    const cy = showCode ? 530 : 510;
+    const r = this.add.rectangle(cx, cy, 170, 46, 0x3a4f8a, 1).setStrokeStyle(2, 0xffffff, 0.4).setInteractive({ useHandCursor: true });
+    const t = this.add.text(cx, cy, label, { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5);
+    r.on('pointerover', () => r.setStrokeStyle(3, 0xffffff, 0.9));
+    r.on('pointerout',  () => r.setStrokeStyle(2, 0xffffff, 0.4));
+    r.on('pointerdown', () => this.go());
+    this.confirmBtn = [r, t];
 
-    this.makeButton(cx, 470, 200, 40, '← Back', 0x33384a, () => this.scene.start('ClassSelectScene'));
-
-    this.status = this.add.text(cx, 540, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
+    this.status.setText('');
+    setTimeout(() => { const el = form.querySelector('#pname'); if (el) el.focus(); }, 80);
   }
 
   makeButton(x, y, w, h, label, color, onClick) {
     const r = this.add.rectangle(x, y, w, h, color, 1).setStrokeStyle(2, 0xffffff, 0.4).setInteractive({ useHandCursor: true });
     this.add.text(x, y, label, { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5);
     r.on('pointerover', () => r.setStrokeStyle(3, 0xffffff, 0.9));
-    r.on('pointerout', () => r.setStrokeStyle(2, 0xffffff, 0.4));
+    r.on('pointerout',  () => r.setStrokeStyle(2, 0xffffff, 0.4));
     r.on('pointerdown', onClick);
     return r;
   }
 
-  field(id) { const el = this.formEl.node.querySelector('#' + id); return el ? el.value.trim() : ''; }
+  field(id) { const el = this.formEl && this.formEl.node.querySelector('#' + id); return el ? el.value.trim() : ''; }
 
-  go(mode) {
+  go() {
     const name = this.field('pname') || 'Player';
-    const code = this.field('pcode').toUpperCase();
-    if (mode === 'join' && code.length < 4) { this.status.setText('Enter a 4-character party code to join.'); return; }
+    const code = (this.field('pcode') || '').toUpperCase();
+    if (this.mode === 'join' && code.length < 4) { this.status.setText('Enter a 4-character party code to join.'); return; }
 
     this.status.setText('Connecting…');
     const net = new NetClient();
@@ -68,7 +89,7 @@ export default class LobbyScene extends Phaser.Scene {
     });
     const progress = loadProgress(this.classKey);
     net.on('connect', () => {
-      if (mode === 'create') net.createParty(name, this.classKey, progress);
+      if (this.mode === 'create') net.createParty(name, this.classKey, progress);
       else net.joinParty(code, name, this.classKey, progress);
     });
     net.connect();
