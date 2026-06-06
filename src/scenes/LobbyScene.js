@@ -1,34 +1,29 @@
 import { CONFIG } from '../config.js';
-import { CLASSES } from '../classes/classes.js';
-import NetClient from '../net/NetClient.js';
-import { loadProgress } from '../progress.js';
+
+// Entry screen: choose how to play (Solo / Create party / Join party). The
+// class is chosen next, in ClassSelectScene, which actually starts the game.
 
 export default class LobbyScene extends Phaser.Scene {
   constructor() { super('LobbyScene'); }
 
-  create(data) {
-    this.classKey = data.classKey;
-    const def = CLASSES[this.classKey];
+  create() {
     this.cameras.main.setBackgroundColor(CONFIG.colors.bg);
     const cx = CONFIG.width / 2;
 
-    this.add.text(cx, 60, 'CHOOSE A MODE', { fontFamily: 'Segoe UI', fontSize: '32px', fontStyle: 'bold', color: '#ffd24a' }).setOrigin(0.5);
-    this.add.circle(cx - 120, 110, 12, def.color);
-    this.add.text(cx - 100, 100, `${def.name} — ${def.role}`, { fontFamily: 'Segoe UI', fontSize: '16px', color: '#fff' }).setOrigin(0, 0.5);
+    this.add.text(cx, 70, 'MyNewGame', { fontFamily: 'Segoe UI', fontSize: '40px', fontStyle: 'bold', color: '#ffd24a' }).setOrigin(0.5);
+    this.add.text(cx, 120, 'CHOOSE A MODE', { fontFamily: 'Segoe UI', fontSize: '20px', fontStyle: 'bold', color: '#cdd6ee' }).setOrigin(0.5);
 
     // Solo
-    this.makeButton(cx, 180, 360, 54, 'PLAY SOLO  (offline)', 0x2a6e3a, () => {
-      this.scene.start('GameScene', { classKey: this.classKey });
+    this.makeButton(cx, 200, 360, 54, 'PLAY SOLO  (offline)', 0x2a6e3a, () => {
+      this.scene.start('ClassSelectScene', { mode: 'solo' });
     });
 
-    this.add.text(cx, 250, '— or play online with friends —', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#9aa6c4' }).setOrigin(0.5);
+    this.add.text(cx, 270, '— or play online with friends —', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#9aa6c4' }).setOrigin(0.5);
 
-    this.btnCreate = this.makeButton(cx - 95, 300, 170, 50, 'CREATE PARTY', 0x3a4f8a, () => this.showForm('create'));
-    this.btnJoin   = this.makeButton(cx + 95, 300, 170, 50, 'JOIN PARTY',   0x3a4f8a, () => this.showForm('join'));
+    this.makeButton(cx - 95, 320, 170, 50, 'CREATE PARTY', 0x3a4f8a, () => this.showForm('create'));
+    this.makeButton(cx + 95, 320, 170, 50, 'JOIN PARTY',   0x3a4f8a, () => this.showForm('join'));
 
-    this.makeButton(cx, 380, 200, 40, '← Back', 0x33384a, () => this.scene.start('ClassSelectScene'));
-
-    this.status = this.add.text(cx, 540, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
+    this.status = this.add.text(cx, 560, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
 
     this.formEl = null;
     this.confirmBtn = null;
@@ -38,7 +33,7 @@ export default class LobbyScene extends Phaser.Scene {
   showForm(mode) {
     this.mode = mode;
     if (this.formEl) this.formEl.destroy();
-    if (this.confirmBtn) { this.confirmBtn.forEach(o => o.destroy()); this.confirmBtn = null; }
+    if (this.confirmBtn) { this.confirmBtn.forEach((o) => o.destroy()); this.confirmBtn = null; }
 
     const cx = CONFIG.width / 2;
     const showCode = mode === 'join';
@@ -48,15 +43,15 @@ export default class LobbyScene extends Phaser.Scene {
     form.innerHTML = `
       <input id="pname" maxlength="16" placeholder="Your name" style="${INPUT_CSS}" />
       ${showCode ? `<input id="pcode" maxlength="4" placeholder="Party code (4 letters)" style="${INPUT_CSS};text-transform:uppercase" />` : ''}`;
-    this.formEl = this.add.dom(cx, showCode ? 460 : 450, form);
+    this.formEl = this.add.dom(cx, showCode ? 440 : 430, form);
 
-    const label = mode === 'create' ? 'CREATE →' : 'JOIN →';
-    const cy = showCode ? 530 : 510;
-    const r = this.add.rectangle(cx, cy, 170, 46, 0x3a4f8a, 1).setStrokeStyle(2, 0xffffff, 0.4).setInteractive({ useHandCursor: true });
+    const label = mode === 'create' ? 'CREATE → pick class' : 'JOIN → pick class';
+    const cy = showCode ? 510 : 490;
+    const r = this.add.rectangle(cx, cy, 220, 46, 0x3a4f8a, 1).setStrokeStyle(2, 0xffffff, 0.4).setInteractive({ useHandCursor: true });
     const t = this.add.text(cx, cy, label, { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#fff' }).setOrigin(0.5);
     r.on('pointerover', () => r.setStrokeStyle(3, 0xffffff, 0.9));
     r.on('pointerout',  () => r.setStrokeStyle(2, 0xffffff, 0.4));
-    r.on('pointerdown', () => this.go());
+    r.on('pointerdown', () => this.next());
     this.confirmBtn = [r, t];
 
     this.status.setText('');
@@ -74,25 +69,12 @@ export default class LobbyScene extends Phaser.Scene {
 
   field(id) { const el = this.formEl && this.formEl.node.querySelector('#' + id); return el ? el.value.trim() : ''; }
 
-  go() {
+  next() {
     const name = this.field('pname') || 'Player';
     const code = (this.field('pcode') || '').toUpperCase();
     if (this.mode === 'join' && code.length < 4) { this.status.setText('Enter a 4-character party code to join.'); return; }
-
-    this.status.setText('Connecting…');
-    const net = new NetClient();
-    net.on('error', (d) => this.status.setText(d.message + '\n(Online needs the server running — see README. Solo works offline.)'));
-    net.on('join_error', (d) => this.status.setText(d.message));
-    net.on('party_joined', () => {
-      if (this.formEl) this.formEl.destroy();
-      this.scene.start('OnlineScene', { net, classKey: this.classKey });
-    });
-    const progress = loadProgress(this.classKey);
-    net.on('connect', () => {
-      if (this.mode === 'create') net.createParty(name, this.classKey, progress);
-      else net.joinParty(code, name, this.classKey, progress);
-    });
-    net.connect();
+    if (this.formEl) this.formEl.destroy();
+    this.scene.start('ClassSelectScene', { mode: this.mode, name, code });
   }
 }
 

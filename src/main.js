@@ -21,7 +21,7 @@ const config = {
     pixelArt: false,
     antialias: true,
   },
-  scene: [ClassSelectScene, LobbyScene, GameScene, OnlineScene],
+  scene: [LobbyScene, ClassSelectScene, GameScene, OnlineScene],
 };
 
 // eslint-disable-next-line no-new
