@@ -30,7 +30,7 @@ export default class ClassSelectScene extends Phaser.Scene {
     const cardW = 300, cardH = 230, gapX = 24, gapY = 22;
     const gridW = cols * cardW + (cols - 1) * gapX;
     const startX = CONFIG.width / 2 - gridW / 2 + cardW / 2;
-    const startY = 150;
+    const startY = 120;
 
     CLASS_ORDER.forEach((key, i) => {
       const def = CLASSES[key];
@@ -39,8 +39,8 @@ export default class ClassSelectScene extends Phaser.Scene {
       this.makeCard(def, key, cx, cy, cardW, cardH);
     });
 
-    this.makeButton(CONFIG.width / 2, 600, 200, 40, '← Back', 0x33384a, () => this.scene.start('LobbyScene'));
-    this.status = this.add.text(CONFIG.width / 2, 640, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
+    this.makeButton(72, 40, 110, 38, '← Back', 0x33384a, () => this.scene.start('LobbyScene'));
+    this.status = this.add.text(CONFIG.width / 2, 678, '', { fontFamily: 'Segoe UI', fontSize: '14px', color: '#ffb4a8', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
   }
 
   makeCard(def, key, cx, cy, w, h) {
