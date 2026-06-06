@@ -193,6 +193,7 @@ export default class ServerPlayer {
   privateState() {
     const s = this.stats;
     return {
+      classKey: this.classKey, // so the inventory UI can gate equip by class
       level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints,
       cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2) },
       stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI }, // total (base + gear)
