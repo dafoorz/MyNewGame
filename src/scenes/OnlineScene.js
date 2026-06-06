@@ -163,7 +163,13 @@ export default class OnlineScene extends Phaser.Scene {
       this._saveAcc = 0;
       saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear });
     }
-    if (this.inventory && this.inventory.open) this.inventory.refresh();
+    // Refresh the inventory only when its data actually changes — rebuilding the
+    // rows every frame would destroy the interactive elements before a click
+    // could register (clicks worked in solo, which only refreshes on change).
+    if (this.inventory && this.inventory.open && this.me) {
+      const sig = JSON.stringify([this.me.inventory, this.me.gear, this.me.baseStats, this.me.statPoints]);
+      if (sig !== this._invSig) { this._invSig = sig; this.inventory.refresh(); }
+    }
 
     const meEnt = snap.players.find((p) => p.id === this.net.youId);
     if (meEnt && !this.localPos) this.localPos = { x: meEnt.x, y: meEnt.y };
