@@ -147,13 +147,13 @@ export default class InventoryPanel {
     // --- Equipped slots (tap to open Unequip) ---
     EQUIP_SLOTS.forEach((slot, i) => {
       const y = top + 12 + i * 38;
-      add(s.add.rectangle(cx - 230, y, 196, 32, 0x191d2e, 0.95).setStrokeStyle(1, 0x333a52).setScrollFactor(0));
+      const rect = add(s.add.rectangle(cx - 230, y, 196, 32, 0x191d2e, 0.95).setStrokeStyle(1, 0x333a52).setScrollFactor(0));
       mkText(cx - 322, y - 7, SLOT_LABEL[slot], '#7f8aa8', 10);
       const it = gear[slot];
       if (it) {
-        const t = mkText(cx - 322, y + 7, this._clip(it.name, 22), rarityColor(it.rarity), 12);
-        t.setInteractive({ useHandCursor: true });
-        t.on('pointerdown', (p) => this.showTip(it, p.x, p.y, [{ label: 'Unequip', color: 0x355a8a, fn: () => this.onUnequip(slot) }]));
+        mkText(cx - 322, y + 7, this._clip(it.name, 22), rarityColor(it.rarity), 12);
+        rect.setInteractive({ useHandCursor: true });
+        rect.on('pointerdown', (p) => this.showTip(it, p.x, p.y, [{ label: 'Unequip', color: 0x355a8a, fn: () => this.onUnequip(slot) }]));
       } else {
         mkText(cx - 322, y + 7, '— empty —', '#5a6178', 12);
       }
@@ -166,11 +166,11 @@ export default class InventoryPanel {
       const col = Math.floor(i / rows), row = i % rows;
       const x = colX[col], y = top + 6 + row * rowH;
       const usable = !m.classKey || canEquip(m.classKey, it);
-      add(s.add.rectangle(x + 64, y, 134, rowH - 4, 0x161a29, 0.9).setStrokeStyle(1, 0x2a3047).setScrollFactor(0));
+      const rect = add(s.add.rectangle(x + 64, y, 134, rowH - 4, 0x161a29, 0.9).setStrokeStyle(1, 0x2a3047).setScrollFactor(0));
       const t = mkText(x + 4, y, `${this._clip(it.name, 16)}`, usable ? rarityColor(it.rarity) : '#6b7188', 11);
       t.setAlpha(usable ? 1 : 0.6);
-      t.setInteractive({ useHandCursor: true });
-      t.on('pointerdown', (p) => {
+      rect.setInteractive({ useHandCursor: true });
+      rect.on('pointerdown', (p) => {
         const actions = [];
         if (usable) actions.push({ label: 'Equip', color: 0x2a6e3a, fn: () => this.onEquip(it.id) });
         actions.push({ label: 'Discard', color: 0x7a2a2a, fn: () => this.onDiscard(it.id) });
