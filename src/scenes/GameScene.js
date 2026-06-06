@@ -102,7 +102,7 @@ export default class GameScene extends Phaser.Scene {
       onDiscard: (itemId) => this.discardItem(itemId),
     });
     this.settings = new SettingsPanel(this, {
-      onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
+      onMainMenu: () => { this.persist(); this.scene.start('LobbyScene'); },
       onResetProgress: () => { clearProgress(this.classKey); this.scene.restart({ classKey: this.classKey }); },
     });
 
