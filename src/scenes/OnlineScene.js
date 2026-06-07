@@ -7,7 +7,9 @@ import HealthBar from '../ui/HealthBar.js';
 import { saveProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
+import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
+import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -58,6 +60,12 @@ export default class OnlineScene extends Phaser.Scene {
       onUnequip: (slot) => this.net.sendUnequip(slot),
       onDiscard: (itemId) => this.net.sendDiscard(itemId),
     });
+    this.effSkills = this.classDef.skills; // recomputed from me.skillTree each snapshot
+    this.treePanel = new SkillTreePanel(this, {
+      getModel: () => ({ classKey: this.classKey, level: this.me ? this.me.level : 1, alloc: (this.me && this.me.skillTree) || {} }),
+      onSpend: (nodeId) => this.net.sendSpendSkill(nodeId),
+      onRespec: () => this.net.sendRespecSkill(),
+    });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('LobbyScene'); },
     });
@@ -100,7 +108,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C,I,K');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -127,6 +135,7 @@ export default class OnlineScene extends Phaser.Scene {
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
         case 'inv': this.inventory.toggle(); break;
+        case 'tree': this.treePanel.toggle(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -135,6 +144,7 @@ export default class OnlineScene extends Phaser.Scene {
   isOverUI(p) {
     if (this.settings && this.settings.open) return true;
     if (this.inventory && this.inventory.contains(p.x, p.y)) return true;
+    if (this.treePanel && this.treePanel.contains(p.x, p.y)) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) for (const sb of this.skillBoxes) if (Math.abs(p.x - sb.x) <= sb.boxW / 2 && Math.abs(p.y - sb.y) <= sb.boxW / 2) return true;
     if (this.attackBtn && Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) return true;
@@ -142,6 +152,7 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
+    if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
     return false;
   }
 
@@ -161,11 +172,20 @@ export default class OnlineScene extends Phaser.Scene {
     this._saveAcc = (this._saveAcc || 0) + dt;
     if (this._saveAcc >= 2 && this.me && this.me.stats) {
       this._saveAcc = 0;
-      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear });
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, skillTree: this.me.skillTree });
     }
-    // Refresh the inventory only when its data actually changes — rebuilding the
-    // rows every frame would destroy the interactive elements before a click
-    // could register (clicks worked in solo, which only refreshes on change).
+    // Recompute effective skills (tree upgrades/unlocks) only when the allocation
+    // changes; refresh the open panels only on change (rebuilding every frame
+    // would destroy their interactive elements before a click could register).
+    if (this.me) {
+      const tsig = JSON.stringify([this.me.skillTree, this.me.level]);
+      if (tsig !== this._treeSig) {
+        this._treeSig = tsig;
+        this.effSkills = effectiveSkills(this.classDef, buildFromTree(this.classKey, this.me.skillTree || {}));
+        if (this.skillBoxes) for (const sb of this.skillBoxes) { const d = this.effSkills[sb.slot - 1]; sb.def = d; if (sb.nameText) sb.nameText.setText(d.name); }
+        if (this.treePanel && this.treePanel.open) this.treePanel.refresh();
+      }
+    }
     if (this.inventory && this.inventory.open && this.me) {
       const sig = JSON.stringify([this.me.inventory, this.me.gear, this.me.baseStats, this.me.statPoints]);
       if (sig !== this._invSig) { this._invSig = sig; this.inventory.refresh(); }
@@ -379,9 +399,9 @@ export default class OnlineScene extends Phaser.Scene {
       const box = this.add.rectangle(x, y, boxW, boxW, 0x1c2138, 0.95).setStrokeStyle(2, 0x3a4366).setDepth(60).setScrollFactor(0).setInteractive();
       box.on('pointerdown', () => this.castSlot(slot));
       this.add.text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, { fontFamily: 'Segoe UI', fontSize: '12px', fontStyle: 'bold', color: '#fff' }).setDepth(62).setScrollFactor(0);
-      this.add.text(x, y + boxW / 2 - 11, def.name, { fontFamily: 'Segoe UI', fontSize: '8px', color: def.color, align: 'center', wordWrap: { width: boxW - 4 } }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
+      const nameText = this.add.text(x, y + boxW / 2 - 11, def.name, { fontFamily: 'Segoe UI', fontSize: '8px', color: def.color, align: 'center', wordWrap: { width: boxW - 4 } }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
       const overlay = this.add.rectangle(x, y + boxW / 2, boxW, boxW, 0x000000, 0.65).setOrigin(0.5, 1).setDepth(61).setScrollFactor(0); overlay.height = 0;
-      this.skillBoxes.push({ slot, def, overlay, boxW, x, y });
+      this.skillBoxes.push({ slot, def, overlay, boxW, x, y, nameText });
     });
   }
 
@@ -409,6 +429,11 @@ export default class OnlineScene extends Phaser.Scene {
     const invBg = this.add.circle(invX, invY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x8bd96a, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
     this.add.text(invX, invY, 'I', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#8bd96a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     invBg.on('pointerdown', () => this.inventory.toggle()); this.invBtn = { x: invX, y: invY, r: 22 };
+
+    const trX = CONFIG.width - 44, trY = 230;
+    const trBg = this.add.circle(trX, trY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffd24a, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
+    this.treeBadge = this.add.text(trX, trY, 'K', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffd24a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    trBg.on('pointerdown', () => this.treePanel.toggle()); this.treeBtn = { x: trX, y: trY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -451,8 +476,10 @@ export default class OnlineScene extends Phaser.Scene {
     if (me) {
       const meEnt = snap.players.find((p) => p.id === this.net.youId) || { hp: 0, maxHp: 1 };
       const s = me.stats;
-      this.statsText.setText([`${this.classDef.name}  Lv ${me.level}`, `HP ${Math.ceil(meEnt.hp)}/${meEnt.maxHp}`, `XP ${me.xp}/${me.xpToNext}`, `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`, me.statPoints > 0 ? `>> ${me.statPoints} point(s) — press C` : ''].join('\n'));
+      const sp = me.skillPoints || 0;
+      this.statsText.setText([`${this.classDef.name}  Lv ${me.level}`, `HP ${Math.ceil(meEnt.hp)}/${meEnt.maxHp}`, `XP ${me.xp}/${me.xpToNext}`, `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`, me.statPoints > 0 ? `>> ${me.statPoints} stat point(s) — press C` : '', sp > 0 ? `>> ${sp} skill point(s) — press K` : ''].filter(Boolean).join('\n'));
       this.xpFill.width = CONFIG.width * Phaser.Math.Clamp(me.xp / me.xpToNext, 0, 1);
+      if (this.treeBadge) this.treeBadge.setColor(sp > 0 ? '#7CFC9A' : '#ffd24a');
       for (const sb of this.skillBoxes) sb.overlay.height = sb.boxW * Phaser.Math.Clamp((me.cd[sb.slot] || 0) / sb.def.cd, 0, 1);
     }
     this.zoneText.setText(`Party ${this.net.code}   ·   ${z.name}${z.safe ? '  (safe)' : ''}`);
