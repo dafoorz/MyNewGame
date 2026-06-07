@@ -59,15 +59,17 @@ src/
 
 ## Conventions / gotchas
 
-- **Isometric rendering is client-only (`src/iso.js`).** The whole simulation
-  stays in flat world (x, y) space — server authoritative, all logic/multiplayer
-  unchanged. Each scene puts world GRAPHICS (ground, bodies, telegraphs,
-  projectiles, FX) in a transformed "world container" (`this.world`) so circles
-  become ellipses, AoE telegraphs distort, and the grid is a diamond, for free.
-  Text + health bars are NOT in the container (a rotated, non-uniform-scaled
-  parent shears them) — they stay scene-space, positioned via `project(x,y)`.
-  Depth-sort by world `x+y` (`this.world.sort('depth')` each frame). Input is
-  rotated to world via `dirToWorld`; the cursor is `unproject`ed for aim/facing.
+- **Isometric rendering is client-only (`src/iso.js` + `src/sprites.js`).** The
+  whole simulation stays in flat world (x, y) space — server authoritative, all
+  logic/multiplayer unchanged. Only the FLOOR + ground decals (zone grid,
+  portals, boss telegraphs, AoE FX) live in the transformed `this.world`
+  container so they distort into the iso diamond. Characters/mobs/boss/minions
+  and projectiles are UPRIGHT billboards drawn in scene space at `project(x,y)`
+  (placeholder vector art in `src/sprites.js`) — never in the container, so they
+  don't get squashed. Depth: bodies use `bodyDepth(x,y)` (scene depth band
+  10–~53, sorted by ground x+y); labels/bars sit at depth 55; the container
+  (floor) renders below all of them. Input is rotated to world via `dirToWorld`;
+  the cursor is `unproject`ed for aim/facing; facing markers use `projectDir`.
   **Fall back to top-down anytime with `?iso=0`** (projection becomes identity).
 - **No build step.** Plain ES modules in the browser. Don't add bundlers.
 - **Cache-busting:** the script tag in `index.html` is `src/main.js?v=N`. Bump

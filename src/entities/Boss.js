@@ -2,7 +2,8 @@ import { CONFIG } from '../config.js';
 import HealthBar from '../ui/HealthBar.js';
 import BossCore from '../world/BossCore.js';
 import { DEFAULT_BOSS } from '../world/bosses.js';
-import { depth } from '../iso.js';
+import { project, projectDir, bodyDepth } from '../iso.js';
+import { drawBoss } from '../sprites.js';
 
 // Solo boss: a thin Phaser renderer around the shared, data-driven BossCore
 // (src/world/BossCore.js + bosses.js). The core runs the whole state machine
@@ -60,16 +61,10 @@ export default class Boss {
     g.clear();
     if (!this.core.alive) return;
     const c = this.core;
-    g.depth = depth(c.x, c.y);
-    g.fillStyle(c.color, 1);
-    g.fillCircle(c.x, c.y, c.radius);
-    g.lineStyle(c.enraged ? 4 : 3, c.enraged ? 0xff3a3a : 0x000000, c.enraged ? 0.9 : 0.4);
-    g.strokeCircle(c.x, c.y, c.radius);
-    // "Front" marker so players can read which way the cleave/charge will go.
-    const fx = c.x + Math.cos(c.facing) * (c.radius + 4);
-    const fy = c.y + Math.sin(c.facing) * (c.radius + 4);
-    g.fillStyle(0xffd24a, 1);
-    g.fillCircle(fx, fy, 8);
+    g.depth = bodyDepth(c.x, c.y); // upright billboard above the iso floor
+    const sp = project(c.x, c.y);
+    const fd = projectDir(Math.cos(c.facing), Math.sin(c.facing));
+    drawBoss(g, sp.x, sp.y, c.radius, c.color, { enraged: c.enraged, faceDx: fd.x, faceDy: fd.y });
   }
 
   drawTelegraph() {

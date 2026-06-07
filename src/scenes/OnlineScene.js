@@ -10,7 +10,8 @@ import InventoryPanel from '../ui/InventoryPanel.js';
 import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
 import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
-import { applyIso, project, unproject, dirToWorld, depth, zoneBounds } from '../iso.js';
+import { applyIso, project, unproject, dirToWorld, projectDir, bodyDepth, zoneBounds } from '../iso.js';
+import { drawHumanoid, drawCreature, drawBoss, drawMinion } from '../sprites.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -36,14 +37,15 @@ export default class OnlineScene extends Phaser.Scene {
     this.localPos = null;
     this.me = null;
 
-    // Isometric world layer (see src/iso.js). All world GRAPHICS go in here and
-    // inherit the iso transform; text/health bars stay scene-space at project().
+    // Iso world layer (see src/iso.js): the FLOOR and ground decals (zone grid,
+    // portals, boss telegraphs) live here and inherit the iso transform. Bodies
+    // and projectiles are upright billboards in scene space at project(x,y).
     this.world = applyIso(this.add.container(0, 0));
     this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
     this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
     this.telegraphGfx = this.add.graphics(); this.telegraphGfx.depth = -1000; this.world.add(this.telegraphGfx);
-    this.bossGfx = this.add.graphics(); this.bossGfx.depth = 1; this.world.add(this.bossGfx);
-    this.projGfx = this.add.graphics(); this.projGfx.depth = 1e7; this.world.add(this.projGfx);
+    this.bossGfx = this.add.graphics().setDepth(20);   // boss billboard (scene space)
+    this.projGfx = this.add.graphics().setDepth(53);   // projectiles (scene space)
     this.portalLabels = [];
 
     this.players = new Map();  // id -> render bundle
@@ -270,25 +272,30 @@ export default class OnlineScene extends Phaser.Scene {
     for (const p of snap.players) {
       seen.add(p.id);
       let e = this.players.get(p.id);
-      if (!e) { e = { color: CLASSES[p.classKey] ? CLASSES[p.classKey].color : 0xffffff, gfx: this.add.graphics(), label: this.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '12px', color: '#fff' }).setOrigin(0.5).setDepth(11), hpBar: new HealthBar(this, 0, 0, 46, 6, { depth: 11 }), rx: p.x, ry: p.y }; this.world.add(e.gfx); this.players.set(p.id, e); }
+      if (!e) { e = { color: CLASSES[p.classKey] ? CLASSES[p.classKey].color : 0xffffff, gfx: this.add.graphics(), label: this.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '12px', color: '#fff' }).setOrigin(0.5).setDepth(55), hpBar: new HealthBar(this, 0, 0, 46, 6, { depth: 55 }), rx: p.x, ry: p.y }; this.players.set(p.id, e); }
       const isMe = p.id === this.net.youId;
       const tx = isMe && this.localPos ? this.localPos.x : p.x;
       const ty = isMe && this.localPos ? this.localPos.y : p.y;
       e.rx += (tx - e.rx) * (isMe ? 1 : 0.25); e.ry += (ty - e.ry) * (isMe ? 1 : 0.25);
       const facing = isMe ? this.facing : p.facing;
 
-      const g = e.gfx; g.clear(); g.depth = depth(e.rx, e.ry);
-      if (!p.alive) { g.fillStyle(0x444a5e, 0.8); g.fillCircle(e.rx, e.ry, 16); e.label.setText(p.name + ' (down)'); }
-      else {
-        g.fillStyle(e.color, 1); g.fillCircle(e.rx, e.ry, 16);
-        if (p.buff) { g.lineStyle(2, 0xffe066, 0.7); g.strokeCircle(e.rx, e.ry, 25); }
-        g.lineStyle(2, isMe ? 0xffffff : 0xbfc8e0, 0.9); g.strokeCircle(e.rx, e.ry, 16);
-        if (p.shield) { g.lineStyle(3, 0x66ccff, 0.9); g.strokeCircle(e.rx, e.ry, 22); }
-        if (p.invuln) { g.lineStyle(3, 0x5dd9ff, 0.9); g.strokeCircle(e.rx, e.ry, 27); }
-        g.lineStyle(4, 0xffffff, 1); g.beginPath(); g.moveTo(e.rx, e.ry); g.lineTo(e.rx + Math.cos(facing) * 28, e.ry + Math.sin(facing) * 28); g.strokePath();
+      const g = e.gfx; g.clear(); g.depth = bodyDepth(e.rx, e.ry);
+      const sp = project(e.rx, e.ry);
+      const r = 16, headTop = sp.y - r * 2.9;
+      if (!p.alive) {
+        g.fillStyle(0x000000, 0.3); g.fillEllipse(sp.x, sp.y, r * 2.3, r * 1.05);
+        g.fillStyle(0x444a5e, 0.85); g.fillCircle(sp.x, sp.y - r * 0.4, r * 0.9);
+        e.label.setText(p.name + ' (down)');
+      } else {
+        const rings = [];
+        if (p.buff) rings.push({ color: 0xffe066, alpha: 0.7, pad: 8 });
+        if (p.shield) rings.push({ color: 0x66ccff, alpha: 0.9, w: 3, pad: 11 });
+        if (p.invuln) rings.push({ color: 0x5dd9ff, alpha: 0.9, w: 3, pad: 14 });
+        const fd = projectDir(Math.cos(facing), Math.sin(facing));
+        drawHumanoid(g, sp.x, sp.y, r, e.color, { faceDx: fd.x, faceDy: fd.y, rings });
         e.label.setText(`${isMe ? p.name + ' (you)' : p.name}  Lv${p.level}`);
       }
-      const sp = project(e.rx, e.ry); e.label.setPosition(sp.x, sp.y - 42); e.hpBar.setPosition(sp.x, sp.y - 28); e.hpBar.setValue(p.hp / p.maxHp);
+      e.label.setPosition(sp.x, headTop - 8); e.hpBar.setPosition(sp.x, headTop + 8); e.hpBar.setValue(p.hp / p.maxHp);
     }
     for (const [id, e] of this.players) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.players.delete(id); }
   }
@@ -299,13 +306,13 @@ export default class OnlineScene extends Phaser.Scene {
       seen.add(m.id);
       const t = MOB_TYPES[m.typeKey];
       let e = this.mobsR.get(m.id);
-      if (!e) { e = { gfx: this.add.graphics(), label: this.add.text(0, 0, `Lv${m.level} ${t.name}`, { fontFamily: 'Segoe UI', fontSize: '10px', color: '#d8dcea' }).setOrigin(0.5).setDepth(9), hpBar: new HealthBar(this, 0, 0, 34, 5, { depth: 9 }), rx: m.x, ry: m.y }; this.world.add(e.gfx); this.mobsR.set(m.id, e); }
+      if (!e) { e = { gfx: this.add.graphics(), label: this.add.text(0, 0, `Lv${m.level} ${t.name}`, { fontFamily: 'Segoe UI', fontSize: '10px', color: '#d8dcea' }).setOrigin(0.5).setDepth(55), hpBar: new HealthBar(this, 0, 0, 34, 5, { depth: 55 }), rx: m.x, ry: m.y }; this.mobsR.set(m.id, e); }
       e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
-      const g = e.gfx; g.clear(); g.depth = depth(e.rx, e.ry); g.fillStyle(t.color, 1);
-      if (t.kind === 'ranged') { g.beginPath(); g.moveTo(e.rx, e.ry - t.radius); g.lineTo(e.rx + t.radius, e.ry); g.lineTo(e.rx, e.ry + t.radius); g.lineTo(e.rx - t.radius, e.ry); g.closePath(); g.fillPath(); }
-      else g.fillCircle(e.rx, e.ry, t.radius);
-      g.lineStyle(2, 0x000000, 0.35); g.strokeCircle(e.rx, e.ry, t.radius);
-      const sp = project(e.rx, e.ry); e.label.setPosition(sp.x, sp.y - t.radius - 20); e.hpBar.setPosition(sp.x, sp.y - t.radius - 9); e.hpBar.setValue(m.hp / m.maxHp);
+      const g = e.gfx; g.clear(); g.depth = bodyDepth(e.rx, e.ry);
+      const sp = project(e.rx, e.ry);
+      drawCreature(g, sp.x, sp.y, t.radius, t.color, t.kind === 'ranged');
+      const top = sp.y - t.radius * (t.kind === 'ranged' ? 2.6 : 2.1);
+      e.label.setPosition(sp.x, top - 6); e.hpBar.setPosition(sp.x, top + 6); e.hpBar.setValue(m.hp / m.maxHp);
     }
     for (const [id, e] of this.mobsR) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.mobsR.delete(id); }
   }
@@ -315,14 +322,14 @@ export default class OnlineScene extends Phaser.Scene {
     for (const m of list || []) {
       seen.add(m.id);
       let e = this.minionsR.get(m.id);
-      if (!e) { e = { gfx: this.add.graphics(), rx: m.x, ry: m.y }; this.world.add(e.gfx); this.minionsR.set(m.id, e); }
+      if (!e) { e = { gfx: this.add.graphics(), rx: m.x, ry: m.y }; this.minionsR.set(m.id, e); }
       e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
-      const g = e.gfx; g.clear(); g.depth = depth(e.rx, e.ry);
-      g.fillStyle(0x9ad17a, 1); g.fillCircle(e.rx, e.ry, 10);
-      g.lineStyle(2, 0x3a5a2a, 1); g.strokeCircle(e.rx, e.ry, 10);
-      const bw = 24;
-      g.fillStyle(0x220000, 1); g.fillRect(e.rx - bw / 2, e.ry - 18, bw, 4);
-      g.fillStyle(0x66ff44, 1); g.fillRect(e.rx - bw / 2, e.ry - 18, bw * (m.hp / m.maxHp), 4);
+      const g = e.gfx; g.clear(); g.depth = bodyDepth(e.rx, e.ry);
+      const sp = project(e.rx, e.ry);
+      drawMinion(g, sp.x, sp.y, 10);
+      const bw = 24, by = sp.y - 24;
+      g.fillStyle(0x220000, 1); g.fillRect(sp.x - bw / 2, by, bw, 4);
+      g.fillStyle(0x66ff44, 1); g.fillRect(sp.x - bw / 2, by, bw * (m.hp / m.maxHp), 4);
     }
     for (const [id, e] of this.minionsR) if (!seen.has(id)) { e.gfx.destroy(); this.minionsR.delete(id); }
   }
@@ -336,11 +343,11 @@ export default class OnlineScene extends Phaser.Scene {
     this.bossDpsText.setVisible(rows.length > 0).setText(rows.map((r) => `${r.name}: ${r.dps.toLocaleString()} dps`).join('\n'));
     this.bossNameText.setText(b.enraged ? `${b.name}  [ENRAGED]` : b.name);
     const radius = b.radius || 46;
-    g.depth = depth(b.x, b.y);
+    g.depth = bodyDepth(b.x, b.y);
     if (b.alive) {
-      g.fillStyle(b.color != null ? b.color : CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, radius);
-      g.lineStyle(b.enraged ? 4 : 3, b.enraged ? 0xff3a3a : 0x000000, b.enraged ? 0.9 : 0.4); g.strokeCircle(b.x, b.y, radius);
-      g.fillStyle(0xffd24a, 1); g.fillCircle(b.x + Math.cos(b.facing) * (radius + 4), b.y + Math.sin(b.facing) * (radius + 4), 8);
+      const sp = project(b.x, b.y);
+      const fd = projectDir(Math.cos(b.facing), Math.sin(b.facing));
+      drawBoss(g, sp.x, sp.y, radius, b.color != null ? b.color : CONFIG.colors.boss, { enraged: b.enraged, faceDx: fd.x, faceDy: fd.y });
     }
     if (b.telegraph) this.drawBossTelegraph(tg, b.telegraph);
   }
@@ -376,7 +383,7 @@ export default class OnlineScene extends Phaser.Scene {
     }
   }
 
-  renderProjectiles(list) { const g = this.projGfx; g.clear(); if (!list) return; for (const pr of list) { g.fillStyle(pr.color, 1); g.fillCircle(pr.x, pr.y, pr.r); } }
+  renderProjectiles(list) { const g = this.projGfx; g.clear(); if (!list) return; for (const pr of list) { const sp = project(pr.x, pr.y); g.fillStyle(pr.color, 1); g.fillCircle(sp.x, sp.y, pr.r); } }
 
   consumeFx(fx) {
     if (!fx) return;
