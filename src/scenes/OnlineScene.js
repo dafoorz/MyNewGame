@@ -302,15 +302,44 @@ export default class OnlineScene extends Phaser.Scene {
     // Per-player DPS meter (server-authoritative, ranked). Visible to everyone.
     const rows = b.dps || [];
     this.bossDpsText.setVisible(rows.length > 0).setText(rows.map((r) => `${r.name}: ${r.dps.toLocaleString()} dps`).join('\n'));
+    this.bossNameText.setText(b.enraged ? `${b.name}  [ENRAGED]` : b.name);
+    const radius = b.radius || 46;
     if (b.alive) {
-      g.fillStyle(CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, 46); g.lineStyle(3, 0x000000, 0.4); g.strokeCircle(b.x, b.y, 46);
-      g.fillStyle(0xffd24a, 1); g.fillCircle(b.x + Math.cos(b.facing) * 50, b.y + Math.sin(b.facing) * 50, 8);
+      g.fillStyle(b.color != null ? b.color : CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, radius);
+      g.lineStyle(b.enraged ? 4 : 3, b.enraged ? 0xff3a3a : 0x000000, b.enraged ? 0.9 : 0.4); g.strokeCircle(b.x, b.y, radius);
+      g.fillStyle(0xffd24a, 1); g.fillCircle(b.x + Math.cos(b.facing) * (radius + 4), b.y + Math.sin(b.facing) * (radius + 4), 8);
     }
-    if (b.telegraph) {
-      const t = b.telegraph; const alpha = 0.25 + t.progress * 0.4;
-      tg.fillStyle(CONFIG.colors.telegraph, alpha); tg.lineStyle(3, CONFIG.colors.telegraph, 0.9);
-      if (t.type === 'cleave') { const steps = 24, start = t.facing - t.halfAngle, end = t.facing + t.halfAngle; tg.beginPath(); tg.moveTo(t.x, t.y); for (let i = 0; i <= steps; i++) { const a = start + ((end - start) * i) / steps; tg.lineTo(t.x + Math.cos(a) * t.range, t.y + Math.sin(a) * t.range); } tg.closePath(); tg.fillPath(); tg.strokePath(); }
-      else { tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius); }
+    if (b.telegraph) this.drawBossTelegraph(tg, b.telegraph);
+  }
+
+  // Snapshot-driven telegraph rendering (mirrors the solo drawTelegraph helper).
+  drawBossTelegraph(tg, t) {
+    const alpha = 0.25 + (t.progress || 0) * 0.4;
+    const C = CONFIG.colors.telegraph;
+    if (t.type === 'cleave') {
+      const steps = 24, start = t.facing - t.halfAngle, end = t.facing + t.halfAngle;
+      tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
+      tg.beginPath(); tg.moveTo(t.x, t.y);
+      for (let i = 0; i <= steps; i++) { const a = start + ((end - start) * i) / steps; tg.lineTo(t.x + Math.cos(a) * t.range, t.y + Math.sin(a) * t.range); }
+      tg.closePath(); tg.fillPath(); tg.strokePath();
+    } else if (t.type === 'aoe') {
+      tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
+      tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius);
+    } else if (t.type === 'charge') {
+      const dx = Math.cos(t.facing), dy = Math.sin(t.facing), px = -dy, py = dx, hw = t.width / 2;
+      const ex = t.x + dx * t.length, ey = t.y + dy * t.length;
+      tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
+      tg.beginPath();
+      tg.moveTo(t.x + px * hw, t.y + py * hw); tg.lineTo(ex + px * hw, ey + py * hw);
+      tg.lineTo(ex - px * hw, ey - py * hw); tg.lineTo(t.x - px * hw, t.y - py * hw);
+      tg.closePath(); tg.fillPath(); tg.strokePath();
+    } else if (t.type === 'summon') {
+      tg.lineStyle(3, 0xc06cff, 0.9); tg.fillStyle(0xc06cff, alpha * 0.6);
+      tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius);
+    } else if (t.type === 'safezone') {
+      tg.fillStyle(0xff4040, 0.18 + (t.progress || 0) * 0.22); tg.fillRect(0, 0, t.bw, t.bh);
+      tg.fillStyle(0x4ad06a, 0.35); tg.lineStyle(4, 0x7CFC9A, 0.95);
+      tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius);
     }
   }
 

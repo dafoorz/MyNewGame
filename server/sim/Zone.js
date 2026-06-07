@@ -26,7 +26,7 @@ export default class Zone {
     this.nextProjId = 1;
     this.nextMinionId = 1;
 
-    if (this.def.boss) { this.boss = new Boss(this.bounds); this.aggro = new AggroTable(); this._bossWasAlive = true; this.bossResetTimer = 0; this.bossDmg = new Map(); this.bossFightStart = 0; }
+    if (this.def.boss) { this.boss = new Boss(this.bounds, this.def.boss); this.aggro = new AggroTable(); this._bossWasAlive = true; this.bossResetTimer = 0; this.bossDmg = new Map(); this.bossFightStart = 0; }
     else { this.boss = null; this.aggro = null; }
 
     if (this.def.mobTypes) for (let i = 0; i < this.def.mobCount; i++) this.spawnMob();
@@ -52,6 +52,32 @@ export default class Zone {
   addFx(fx) { if (this.fx.length < 100) this.fx.push(fx); }
   spawnProjectile(pr) { pr.id = this.nextProjId++; this.projectiles.push(pr); }
   spawnMinion(owner, x, y, damage, maxHp, duration) { this.minions.push(new Minion(this.nextMinionId++, owner, x, y, damage, maxHp, duration, this.bounds)); }
+
+  // Boss-summoned add: spawns at a given spot, pre-engaged, and never respawns.
+  spawnMobAt(typeKey, x, y, level) {
+    if (this.mobs.length >= 40) return;
+    const m = new Mob(this.nextMobId++, typeKey, x, y, level, this.bounds);
+    m.summoned = true; m.engaged = true;
+    this.mobs.push(m);
+  }
+
+  // Per-tick adapter the shared BossCore uses to read combatants/threat and to
+  // apply damage, summon adds and emit effects (see src/world/BossCore.js).
+  bossAdapter() {
+    const combatants = () => [...this.players, ...this.minions.filter((m) => m.alive)];
+    return {
+      bounds: this.bounds,
+      getCombatants: combatants,
+      getTarget: () => this.aggro.getTarget(combatants()),
+      hit: (e, amount) => {
+        const dealt = e.takeDamage(amount);
+        this.addFx({ t: 'dmg', x: e.x, y: e.y - e.radius, amount: dealt, enemy: true });
+        if (!e.alive) this.aggro.remove(e.id);
+      },
+      spawnAdd: (typeKey, x, y, level) => this.spawnMobAt(typeKey, x, y, level),
+      addFx: (fx) => this.addFx(fx),
+    };
+  }
 
   // What a mob attacks: the nearest player-side entity. Minions are treated
   // identically to players — no taunt preference, just closest wins.
@@ -127,12 +153,7 @@ export default class Zone {
 
     // boss — minions count as combatants so the boss can target/cleave them
     if (this.boss && this.boss.alive) {
-      const combatants = [...this.players, ...this.minions.filter((m) => m.alive)];
-      this.boss.update(dt, combatants, this.aggro, (e, amount) => {
-        const dealt = e.takeDamage(amount);
-        this.addFx({ t: 'dmg', x: e.x, y: e.y - e.radius, amount: dealt, enemy: true });
-        if (!e.alive) this.aggro.remove(e.id);
-      });
+      this.boss.update(dt, this.bossAdapter());
     } else if (this.boss) {
       if (this._bossWasAlive) { this._bossWasAlive = false; this.onBossDeath(); }
       if (this.bossResetTimer > 0) { this.bossResetTimer -= dt; if (this.bossResetTimer <= 0) this.resetBoss(); }
@@ -214,29 +235,31 @@ export default class Zone {
         if (killer && killer.addItem(drop)) this.addFx({ t: 'loot', x: m.x, y: m.y - 28, rarity: drop.rarity, name: drop.name });
         else if (killer) this.addFx({ t: 'text', x: killer.x, y: killer.y - 34, msg: 'Backpack full!', color: '#ff7a7a' });
       }
-      this.respawnQueue.push({ typeKey: m.typeKey, level: m.level, at: this.clock + 8 });
+      if (!m.summoned) this.respawnQueue.push({ typeKey: m.typeKey, level: m.level, at: this.clock + 8 });
     }
     this.mobs = alive;
   }
 
   onBossDeath() {
+    const loot = this.boss.cfg.loot, xp = this.boss.cfg.xp;
     for (const p of this.players) {
-      const levels = p.addXp(500); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: 500 }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
-      // Boss loot: every participant gets 2 guaranteed, high-rarity drops.
+      const levels = p.addXp(xp); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: xp }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
+      // Boss loot: every participant gets guaranteed, high-rarity drops scaled by tier.
       let full = false;
-      for (let i = 0; i < 2; i++) {
-        const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
-        if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x + (i ? 24 : -24), y: p.y - 34, rarity: drop.rarity, name: drop.name });
+      for (let i = 0; i < loot.count; i++) {
+        const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+        if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x + (i - (loot.count - 1) / 2) * 24, y: p.y - 34, rarity: drop.rarity, name: drop.name });
         else full = true;
       }
       if (full) this.addFx({ t: 'text', x: p.x, y: p.y - 54, msg: 'Backpack full — make room!', color: '#ff7a7a' });
     }
     this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'BOSS SLAIN!', color: '#7CFC9A', big: true });
+    this.mobs = this.mobs.filter((m) => !m.summoned); // despawn leftover adds
     this.aggro = new AggroTable();
     this.bossResetTimer = 10;
     this.bossDmg.clear(); this.bossFightStart = 0;
   }
-  resetBoss() { this.boss = new Boss(this.bounds); this._bossWasAlive = true; this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'The Colossus rises again...', color: '#ffd24a', big: true }); }
+  resetBoss() { this.boss = new Boss(this.bounds, this.def.boss); this._bossWasAlive = true; this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: `${this.boss.name} stirs again...`, color: '#ffd24a', big: true }); }
 
   playerById(id) { return this.players.find((p) => p.id === id) || null; }
 
