@@ -11,6 +11,8 @@ import { CLASSES, DEFAULT_CLASS } from '../classes/classes.js';
 import { loadProgress, saveProgress, clearProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
+import SkillTreePanel from '../ui/SkillTreePanel.js';
+import { buildFromTree, effectiveSkills, sanitizeAllocation, availablePoints, canSpend } from '../skilltree.js';
 import {
   STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
   rollDrop, rollItem, rarityColor,
@@ -42,10 +44,12 @@ export default class GameScene extends Phaser.Scene {
 
     this.progression = new Progression();
     // Loot & equipment: base/leveled attributes live in baseAttrs; the player's
-    // derived Stats are rebuilt from baseAttrs + equipped gear (recomputeStats).
+    // derived Stats are rebuilt from baseAttrs + equipped gear + skill tree.
     this.baseAttrs = { ...this.classDef.stats };
     this.gear = emptyGear();
     this.inventory = [];
+    this.skillTree = {}; // skill-tree allocation { nodeId: rank }
+    this.recomputeBuild();
     this.player = new Player(this, 200, 400, new Stats(totalAttrs(this.baseAttrs, this.gear)), {
       name: this.classDef.name,
       color: this.classDef.color,
@@ -65,6 +69,10 @@ export default class GameScene extends Phaser.Scene {
         const it = sanitizeItem(saved.gear[slot]);
         if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
       }
+      // Skill tree: re-derive a legal allocation from the save (drops anything
+      // the current level can't afford).
+      this.skillTree = sanitizeAllocation(this.classKey, saved.skillTree, this.progression.level);
+      this.recomputeBuild();
       this.recomputeStats();
       this.player.hp = this.player.maxHp;
     }
@@ -100,6 +108,11 @@ export default class GameScene extends Phaser.Scene {
       onEquip: (itemId) => this.equipItem(itemId),
       onUnequip: (slot) => this.unequipItem(slot),
       onDiscard: (itemId) => this.discardItem(itemId),
+    });
+    this.treePanel = new SkillTreePanel(this, {
+      getModel: () => ({ classKey: this.classKey, level: this.progression.level, alloc: this.skillTree }),
+      onSpend: (nodeId) => this.spendSkillNode(nodeId),
+      onRespec: () => this.respecSkills(),
     });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { this.persist(); this.scene.start('LobbyScene'); },
@@ -258,7 +271,7 @@ export default class GameScene extends Phaser.Scene {
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C,I');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C,I,K');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -286,6 +299,7 @@ export default class GameScene extends Phaser.Scene {
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
         case 'inv': this.invPanel.toggle(); break;
+        case 'tree': this.treePanel.toggle(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -294,6 +308,7 @@ export default class GameScene extends Phaser.Scene {
   isOverUI(p) {
     if (this.settings && this.settings.open) return true;
     if (this.invPanel && this.invPanel.contains(p.x, p.y)) return true;
+    if (this.treePanel && this.treePanel.contains(p.x, p.y)) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) {
       for (const sb of this.skillBoxes) {
@@ -305,6 +320,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
+    if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
     return false;
   }
 
@@ -442,7 +458,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   useSkill(slot) {
-    const def = this.skills[slot - 1];
+    const def = this.effSkills[slot - 1]; // skill-tree upgrades/unlocks applied
     if (!def || !this.player.alive || this.player.isOnCooldown(slot)) return;
     this.castSkill(def);
     this.player.startCooldown(slot, def.cd);
@@ -609,6 +625,7 @@ export default class GameScene extends Phaser.Scene {
     this.player.recalc();
     this.player.hp = this.player.maxHp;
     this.spawnText(this.player.x, this.player.y - 46, `LEVEL UP! Lv${this.progression.level}`, '#ffe066', true);
+    if (this.treePanel && this.treePanel.open) this.treePanel.refresh();
   }
 
   // ============================================================ PROJECTILES ==
@@ -827,14 +844,14 @@ export default class GameScene extends Phaser.Scene {
       this.add.text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '12px', fontStyle: 'bold', color: '#fff',
       }).setDepth(62).setScrollFactor(0);
-      this.add.text(x, y + boxW / 2 - 11, def.name, {
+      const nameText = this.add.text(x, y + boxW / 2 - 11, this.effSkills[i].name, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '8px', color: def.color,
         align: 'center', wordWrap: { width: boxW - 4 },
       }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
       const overlay = this.add.rectangle(x, y + boxW / 2, boxW, boxW, 0x000000, 0.65)
         .setOrigin(0.5, 1).setDepth(61).setScrollFactor(0);
       overlay.height = 0;
-      this.skillBoxes.push({ slot, def, overlay, boxW, x, y });
+      this.skillBoxes.push({ slot, def: this.effSkills[i], overlay, boxW, x, y, nameText });
     });
   }
 
@@ -876,6 +893,14 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0.5).setDepth(71).setScrollFactor(0);
     invBg.on('pointerdown', () => this.invPanel.toggle());
     this.invBtn = { x: invX, y: invY, r: 22 };
+
+    const trX = CONFIG.width - 44, trY = 230;
+    const trBg = this.add.circle(trX, trY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffd24a, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.treeBadge = this.add.text(trX, trY, 'K', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffd24a' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    trBg.on('pointerdown', () => this.treePanel.toggle());
+    this.treeBtn = { x: trX, y: trY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -940,14 +965,39 @@ export default class GameScene extends Phaser.Scene {
     this.refreshCharPanel();
   }
 
-  // Rebuild the player's derived Stats from base attributes + equipped gear,
-  // keeping the current HP fraction. Call after spending a point or equipping.
+  // Rebuild the player's derived Stats from base attributes + equipped gear +
+  // skill-tree stat nodes, keeping the current HP fraction.
   recomputeStats() {
     const ratio = this.player.maxHp ? this.player.hp / this.player.maxHp : 1;
-    this.player.stats = new Stats(totalAttrs(this.baseAttrs, this.gear));
+    const a = totalAttrs(this.baseAttrs, this.gear);
+    for (const k of STAT_KEYS) a[k] += this.build.stat[k] || 0;
+    this.player.stats = new Stats(a);
     this.player.maxHp = this.player.stats.maxHp;
     this.player.hp = Math.min(this.player.maxHp, Math.max(1, Math.round(this.player.maxHp * ratio)));
   }
+
+  // Recompute the skill-tree build + the effective skill defs (upgrades/unlocks).
+  recomputeBuild() {
+    this.build = buildFromTree(this.classKey, this.skillTree);
+    this.effSkills = effectiveSkills(this.classDef, this.build);
+    if (this.skillBoxes) for (const sb of this.skillBoxes) { const d = this.effSkills[sb.slot - 1]; sb.def = d; if (sb.nameText) sb.nameText.setText(d.name); }
+  }
+
+  // --- skill tree (solo, local) ---
+  spendSkillNode(nodeId) {
+    if (!canSpend(this.classKey, this.skillTree, this.progression.level, nodeId)) return;
+    this.skillTree[nodeId] = (this.skillTree[nodeId] || 0) + 1;
+    this.recomputeBuild();
+    this.recomputeStats();
+    this.persist();
+  }
+  respecSkills() {
+    this.skillTree = {};
+    this.recomputeBuild();
+    this.recomputeStats();
+    this.persist();
+  }
+  skillPointsLeft() { return availablePoints(this.classKey, this.progression.level, this.skillTree); }
 
   // --- inventory / equipment (solo, local) ---
   equipItem(itemId) {
@@ -990,6 +1040,7 @@ export default class GameScene extends Phaser.Scene {
       stats: { ...this.baseAttrs },
       inventory: this.inventory,
       gear: this.gear,
+      skillTree: this.skillTree,
     });
   }
 
@@ -1020,8 +1071,10 @@ export default class GameScene extends Phaser.Scene {
       `HP ${Math.ceil(this.player.hp)}/${this.player.maxHp}`,
       `XP ${pr.xp}/${pr.xpToNext()}`,
       `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`,
-      pr.statPoints > 0 ? `>> ${pr.statPoints} point(s) — press C` : '',
-    ].join('\n'));
+      pr.statPoints > 0 ? `>> ${pr.statPoints} stat point(s) — press C` : '',
+      this.skillPointsLeft() > 0 ? `>> ${this.skillPointsLeft()} skill point(s) — press K` : '',
+    ].filter(Boolean).join('\n'));
+    if (this.treeBadge) this.treeBadge.setColor(this.skillPointsLeft() > 0 ? '#7CFC9A' : '#ffd24a');
 
     this.zoneText.setText(this.zone.name + (this.zone.safe ? '  (safe)' : ''));
     this.xpFill.width = CONFIG.width * Phaser.Math.Clamp(pr.xpRatio(), 0, 1);

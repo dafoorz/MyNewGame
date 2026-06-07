@@ -89,6 +89,19 @@ src/
   `src/keybinds.js` (localStorage). Rebindable keys (move/attack/skills/aim/
   char), Main Menu, Reset Keybinds, Fullscreen, and (solo) Reset Class
   Progress. Both scenes read `this.settings.binds` + a `held` Set for input.
+- Bosses are data-driven: `src/world/bosses.js` (per-boss stats/attacks/enrage/
+  loot) run by one shared, Phaser-free state machine `src/world/BossCore.js`
+  (solo `entities/Boss.js` renders it; server `sim/Boss.js` snapshots it). 4
+  bosses (Colossus → Bonelord → Embermaw → Sunderer) with cleave/aoe/charge/
+  summon/safezone + enrage. Add a boss = a `bosses.js` entry + a zone `boss:`.
+- Per-class skill trees: `src/skilltree.js` (Phaser-free; data + buildFromTree/
+  effectiveSkill/validation, imported by client AND server) + `src/ui/
+  SkillTreePanel.js` (shared UI, 'K' key/button). 1 skill point/level (separate
+  from the 3 stat points). Nodes = stat passives, skill upgrades, or capstone
+  unlocks. Solo saves the allocation to localStorage; online the server
+  validates every spend (`spend_skill`/`respec_skill`) and re-derives saved
+  allocations via `sanitizeAllocation` — no client trust. Stats fold the tree's
+  stat nodes into `recomputeStats`; casts use the effective skill def.
 
 ## Next / TODO ideas
 
