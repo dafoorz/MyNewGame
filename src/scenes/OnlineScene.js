@@ -10,6 +10,7 @@ import InventoryPanel from '../ui/InventoryPanel.js';
 import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
 import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
+import { applyIso, project, unproject, dirToWorld, depth, zoneBounds } from '../iso.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -35,11 +36,14 @@ export default class OnlineScene extends Phaser.Scene {
     this.localPos = null;
     this.me = null;
 
-    this.zoneGfx = this.add.graphics().setDepth(-1);
-    this.portalGfx = this.add.graphics().setDepth(1);
-    this.projGfx = this.add.graphics().setDepth(7);
-    this.bossGfx = this.add.graphics().setDepth(9);
-    this.telegraphGfx = this.add.graphics().setDepth(5);
+    // Isometric world layer (see src/iso.js). All world GRAPHICS go in here and
+    // inherit the iso transform; text/health bars stay scene-space at project().
+    this.world = applyIso(this.add.container(0, 0));
+    this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
+    this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
+    this.telegraphGfx = this.add.graphics(); this.telegraphGfx.depth = -1000; this.world.add(this.telegraphGfx);
+    this.bossGfx = this.add.graphics(); this.bossGfx.depth = 1; this.world.add(this.bossGfx);
+    this.projGfx = this.add.graphics(); this.projGfx.depth = 1e7; this.world.add(this.projGfx);
     this.portalLabels = [];
 
     this.players = new Map();  // id -> render bundle
@@ -79,7 +83,8 @@ export default class OnlineScene extends Phaser.Scene {
     this.curZone = key;
     const z = ZONES[key];
     this.bounds = { w: z.size.w, h: z.size.h };
-    this.cameras.main.setBounds(0, 0, z.size.w, z.size.h);
+    const zb = zoneBounds(z.size.w, z.size.h);
+    this.cameras.main.setBounds(zb.x, zb.y, zb.w, zb.h);
 
     const g = this.zoneGfx; g.clear();
     g.fillStyle(z.bg, 1); g.fillRect(0, 0, z.size.w, z.size.h);
@@ -93,7 +98,8 @@ export default class OnlineScene extends Phaser.Scene {
     for (const p of z.portals) {
       pg.fillStyle(0x6cd0ff, 0.25); pg.fillCircle(p.x, p.y, 40);
       pg.lineStyle(3, 0x6cd0ff, 0.9); pg.strokeCircle(p.x, p.y, 40);
-      this.portalLabels.push(this.add.text(p.x, p.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(2));
+      const lp = project(p.x, p.y);
+      this.portalLabels.push(this.add.text(lp.x, lp.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(40));
     }
 
     // Banner.
@@ -194,9 +200,13 @@ export default class OnlineScene extends Phaser.Scene {
     const meEnt = snap.players.find((p) => p.id === this.net.youId);
     if (meEnt && !this.localPos) this.localPos = { x: meEnt.x, y: meEnt.y };
 
+    // Screen-space movement intent...
+    let ix = 0, iy = 0;
+    if (this.joy.active) { ix = this.move.x; iy = this.move.y; }
+    else if (!this.settings.open) { const b = this.settings.binds; if (this.held.has(b.left)) ix -= 1; if (this.held.has(b.right)) ix += 1; if (this.held.has(b.up)) iy -= 1; if (this.held.has(b.down)) iy += 1; const len = Math.hypot(ix, iy); if (len > 1) { ix /= len; iy /= len; } }
+    // ...rotated into WORLD space (what the server understands) so it feels iso.
     let mx = 0, my = 0;
-    if (this.joy.active) { mx = this.move.x; my = this.move.y; }
-    else if (!this.settings.open) { const b = this.settings.binds; if (this.held.has(b.left)) mx -= 1; if (this.held.has(b.right)) mx += 1; if (this.held.has(b.up)) my -= 1; if (this.held.has(b.down)) my += 1; const len = Math.hypot(mx, my); if (len > 1) { mx /= len; my /= len; } }
+    if (ix !== 0 || iy !== 0) { const mag = Math.min(1, Math.hypot(ix, iy)); const w = dirToWorld(ix, iy); mx = w.x * mag; my = w.y * mag; }
 
     if (this.localPos && meEnt && meEnt.alive) {
       this.localPos.x = Phaser.Math.Clamp(this.localPos.x + mx * this.moveSpeed * dt, 16, this.bounds.w - 16);
@@ -209,7 +219,7 @@ export default class OnlineScene extends Phaser.Scene {
     const py = this.localPos ? this.localPos.y : (meEnt ? meEnt.y : 0);
     if (this.autoAim) { const e = this.nearestEnemy(snap, px, py); if (e) this.facing = Math.atan2(e.y - py, e.x - px); }
     else if (this.isTouch) { if (this.joy.active && (mx !== 0 || my !== 0)) this.facing = Math.atan2(my, mx); }
-    else { const ptr = this.input.activePointer; this.facing = Math.atan2(ptr.worldY - py, ptr.worldX - px); }
+    else { const ptr = this.input.activePointer; const wp = unproject(ptr.worldX, ptr.worldY); this.facing = Math.atan2(wp.y - py, wp.x - px); }
     if (this.facing == null) this.facing = -Math.PI / 2;
 
     this.inputAcc += dt;
@@ -222,8 +232,9 @@ export default class OnlineScene extends Phaser.Scene {
     this.renderProjectiles(snap.projectiles);
     this.consumeFx(snap.fx);
     this.updateHud(snap);
+    this.world.sort('depth'); // painter's order for the iso world layer
 
-    if (this.localPos) { const cam = this.cameras.main; cam.scrollX += (this.localPos.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (this.localPos.y - cam.height / 2 - cam.scrollY) * 0.15; }
+    if (this.localPos) { const cam = this.cameras.main; const sp = project(this.localPos.x, this.localPos.y); cam.scrollX += (sp.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (sp.y - cam.height / 2 - cam.scrollY) * 0.15; }
   }
 
   nearestEnemy(snap, x, y) {
@@ -242,7 +253,8 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.autoAim && snap) { const e = this.nearestEnemy(snap, px, py); if (e) return { x: e.x, y: e.y }; }
     else if (!this.isTouch) {
       const ptr = this.input.activePointer;
-      let dx = ptr.worldX - px, dy = ptr.worldY - py;
+      const wp = unproject(ptr.worldX, ptr.worldY);
+      let dx = wp.x - px, dy = wp.y - py;
       const d = Math.hypot(dx, dy) || 1;
       if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
       return { x: px + dx, y: py + dy };
@@ -258,14 +270,14 @@ export default class OnlineScene extends Phaser.Scene {
     for (const p of snap.players) {
       seen.add(p.id);
       let e = this.players.get(p.id);
-      if (!e) { e = { color: CLASSES[p.classKey] ? CLASSES[p.classKey].color : 0xffffff, gfx: this.add.graphics().setDepth(10), label: this.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '12px', color: '#fff' }).setOrigin(0.5).setDepth(11), hpBar: new HealthBar(this, 0, 0, 46, 6, { depth: 11 }), rx: p.x, ry: p.y }; this.players.set(p.id, e); }
+      if (!e) { e = { color: CLASSES[p.classKey] ? CLASSES[p.classKey].color : 0xffffff, gfx: this.add.graphics(), label: this.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '12px', color: '#fff' }).setOrigin(0.5).setDepth(11), hpBar: new HealthBar(this, 0, 0, 46, 6, { depth: 11 }), rx: p.x, ry: p.y }; this.world.add(e.gfx); this.players.set(p.id, e); }
       const isMe = p.id === this.net.youId;
       const tx = isMe && this.localPos ? this.localPos.x : p.x;
       const ty = isMe && this.localPos ? this.localPos.y : p.y;
       e.rx += (tx - e.rx) * (isMe ? 1 : 0.25); e.ry += (ty - e.ry) * (isMe ? 1 : 0.25);
       const facing = isMe ? this.facing : p.facing;
 
-      const g = e.gfx; g.clear();
+      const g = e.gfx; g.clear(); g.depth = depth(e.rx, e.ry);
       if (!p.alive) { g.fillStyle(0x444a5e, 0.8); g.fillCircle(e.rx, e.ry, 16); e.label.setText(p.name + ' (down)'); }
       else {
         g.fillStyle(e.color, 1); g.fillCircle(e.rx, e.ry, 16);
@@ -276,7 +288,7 @@ export default class OnlineScene extends Phaser.Scene {
         g.lineStyle(4, 0xffffff, 1); g.beginPath(); g.moveTo(e.rx, e.ry); g.lineTo(e.rx + Math.cos(facing) * 28, e.ry + Math.sin(facing) * 28); g.strokePath();
         e.label.setText(`${isMe ? p.name + ' (you)' : p.name}  Lv${p.level}`);
       }
-      e.label.setPosition(e.rx, e.ry - 42); e.hpBar.setPosition(e.rx, e.ry - 28); e.hpBar.setValue(p.hp / p.maxHp);
+      const sp = project(e.rx, e.ry); e.label.setPosition(sp.x, sp.y - 42); e.hpBar.setPosition(sp.x, sp.y - 28); e.hpBar.setValue(p.hp / p.maxHp);
     }
     for (const [id, e] of this.players) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.players.delete(id); }
   }
@@ -287,13 +299,13 @@ export default class OnlineScene extends Phaser.Scene {
       seen.add(m.id);
       const t = MOB_TYPES[m.typeKey];
       let e = this.mobsR.get(m.id);
-      if (!e) { e = { gfx: this.add.graphics().setDepth(8), label: this.add.text(0, 0, `Lv${m.level} ${t.name}`, { fontFamily: 'Segoe UI', fontSize: '10px', color: '#d8dcea' }).setOrigin(0.5).setDepth(9), hpBar: new HealthBar(this, 0, 0, 34, 5, { depth: 9 }), rx: m.x, ry: m.y }; this.mobsR.set(m.id, e); }
+      if (!e) { e = { gfx: this.add.graphics(), label: this.add.text(0, 0, `Lv${m.level} ${t.name}`, { fontFamily: 'Segoe UI', fontSize: '10px', color: '#d8dcea' }).setOrigin(0.5).setDepth(9), hpBar: new HealthBar(this, 0, 0, 34, 5, { depth: 9 }), rx: m.x, ry: m.y }; this.world.add(e.gfx); this.mobsR.set(m.id, e); }
       e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
-      const g = e.gfx; g.clear(); g.fillStyle(t.color, 1);
+      const g = e.gfx; g.clear(); g.depth = depth(e.rx, e.ry); g.fillStyle(t.color, 1);
       if (t.kind === 'ranged') { g.beginPath(); g.moveTo(e.rx, e.ry - t.radius); g.lineTo(e.rx + t.radius, e.ry); g.lineTo(e.rx, e.ry + t.radius); g.lineTo(e.rx - t.radius, e.ry); g.closePath(); g.fillPath(); }
       else g.fillCircle(e.rx, e.ry, t.radius);
       g.lineStyle(2, 0x000000, 0.35); g.strokeCircle(e.rx, e.ry, t.radius);
-      e.label.setPosition(e.rx, e.ry - t.radius - 20); e.hpBar.setPosition(e.rx, e.ry - t.radius - 9); e.hpBar.setValue(m.hp / m.maxHp);
+      const sp = project(e.rx, e.ry); e.label.setPosition(sp.x, sp.y - t.radius - 20); e.hpBar.setPosition(sp.x, sp.y - t.radius - 9); e.hpBar.setValue(m.hp / m.maxHp);
     }
     for (const [id, e] of this.mobsR) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.mobsR.delete(id); }
   }
@@ -303,9 +315,9 @@ export default class OnlineScene extends Phaser.Scene {
     for (const m of list || []) {
       seen.add(m.id);
       let e = this.minionsR.get(m.id);
-      if (!e) { e = { gfx: this.add.graphics().setDepth(8), rx: m.x, ry: m.y }; this.minionsR.set(m.id, e); }
+      if (!e) { e = { gfx: this.add.graphics(), rx: m.x, ry: m.y }; this.world.add(e.gfx); this.minionsR.set(m.id, e); }
       e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
-      const g = e.gfx; g.clear();
+      const g = e.gfx; g.clear(); g.depth = depth(e.rx, e.ry);
       g.fillStyle(0x9ad17a, 1); g.fillCircle(e.rx, e.ry, 10);
       g.lineStyle(2, 0x3a5a2a, 1); g.strokeCircle(e.rx, e.ry, 10);
       const bw = 24;
@@ -324,6 +336,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.bossDpsText.setVisible(rows.length > 0).setText(rows.map((r) => `${r.name}: ${r.dps.toLocaleString()} dps`).join('\n'));
     this.bossNameText.setText(b.enraged ? `${b.name}  [ENRAGED]` : b.name);
     const radius = b.radius || 46;
+    g.depth = depth(b.x, b.y);
     if (b.alive) {
       g.fillStyle(b.color != null ? b.color : CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, radius);
       g.lineStyle(b.enraged ? 4 : 3, b.enraged ? 0xff3a3a : 0x000000, b.enraged ? 0.9 : 0.4); g.strokeCircle(b.x, b.y, radius);
@@ -489,9 +502,9 @@ export default class OnlineScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------- fx ----
-  spawnText(x, y, value, color = '#ffffff', big = false) { const txt = this.add.text(x, y, String(value), { fontFamily: 'Segoe UI', fontSize: big ? '20px' : '14px', fontStyle: 'bold', color, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(80); this.tweens.add({ targets: txt, y: y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() }); }
-  spawnArc(cx, cy, facing, range, half) { const gfx = this.add.graphics().setDepth(15); let t = 0; const ev = this.time.addEvent({ delay: 14, loop: true, callback: () => { t += 14; gfx.clear(); gfx.lineStyle(5, 0xffeedd, (1 - t / 170) * 0.9); gfx.beginPath(); const steps = 12; for (let i = 0; i <= steps; i++) { const a = facing - half + (half * 2 * i) / steps; const px = cx + Math.cos(a) * range, py = cy + Math.sin(a) * range; i === 0 ? gfx.moveTo(px, py) : gfx.lineTo(px, py); } gfx.strokePath(); if (t >= 170) { gfx.destroy(); ev.remove(); } } }); }
-  spawnRing(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xc89bff); const fx = this.add.graphics().setDepth(12); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; fx.clear(); fx.lineStyle(4, color, Phaser.Math.Clamp(1 - t / 300, 0, 1)); fx.strokeCircle(x, y, radius * (t / 300)); if (t >= 300) { fx.destroy(); ev.remove(); } } }); }
-  spawnBlast(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xff7a3c); const fx = this.add.graphics().setDepth(12); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; const p = t / 280; fx.clear(); fx.fillStyle(color, (1 - p) * 0.5); fx.fillCircle(x, y, radius * Math.min(1, p * 1.2)); fx.lineStyle(3, color, 1 - p); fx.strokeCircle(x, y, radius); if (t >= 280) { fx.destroy(); ev.remove(); } } }); }
+  spawnText(x, y, value, color = '#ffffff', big = false) { const sp = project(x, y); const txt = this.add.text(sp.x, sp.y, String(value), { fontFamily: 'Segoe UI', fontSize: big ? '20px' : '14px', fontStyle: 'bold', color, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(80); this.tweens.add({ targets: txt, y: sp.y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() }); }
+  spawnArc(cx, cy, facing, range, half) { const gfx = this.add.graphics(); gfx.depth = 5e6; this.world.add(gfx); let t = 0; const ev = this.time.addEvent({ delay: 14, loop: true, callback: () => { t += 14; gfx.clear(); gfx.lineStyle(5, 0xffeedd, (1 - t / 170) * 0.9); gfx.beginPath(); const steps = 12; for (let i = 0; i <= steps; i++) { const a = facing - half + (half * 2 * i) / steps; const px = cx + Math.cos(a) * range, py = cy + Math.sin(a) * range; i === 0 ? gfx.moveTo(px, py) : gfx.lineTo(px, py); } gfx.strokePath(); if (t >= 170) { gfx.destroy(); ev.remove(); } } }); }
+  spawnRing(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xc89bff); const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; fx.clear(); fx.lineStyle(4, color, Phaser.Math.Clamp(1 - t / 300, 0, 1)); fx.strokeCircle(x, y, radius * (t / 300)); if (t >= 300) { fx.destroy(); ev.remove(); } } }); }
+  spawnBlast(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xff7a3c); const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; const p = t / 280; fx.clear(); fx.fillStyle(color, (1 - p) * 0.5); fx.fillCircle(x, y, radius * Math.min(1, p * 1.2)); fx.lineStyle(3, color, 1 - p); fx.strokeCircle(x, y, radius); if (t >= 280) { fx.destroy(); ev.remove(); } } }); }
   hexToInt(hex, fallback) { if (typeof hex === 'number') return hex; if (typeof hex === 'string' && hex[0] === '#') return parseInt(hex.slice(1), 16); return fallback; }
 }

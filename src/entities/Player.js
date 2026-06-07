@@ -1,5 +1,6 @@
 import { CONFIG } from '../config.js';
 import HealthBar from '../ui/HealthBar.js';
+import { project, depth } from '../iso.js';
 
 // Player-controlled (or, for the ally, base) combatant.
 // Stage 1: the Tank. WASD to move, mouse to face, click to attack, 1-4 for skills.
@@ -164,13 +165,16 @@ export default class Player {
     const g = this.gfx;
     g.clear();
 
+    g.depth = depth(this.x, this.y); // painter's order by ground position
+    const sp = project(this.x, this.y); // label/bar float above the projected spot
+
     if (!this.alive) {
       // Tombstone-ish marker for a downed combatant.
       g.fillStyle(0x444a5e, 0.8);
       g.fillCircle(this.x, this.y, this.radius);
-      this.label.setPosition(this.x, this.y - this.radius - 26);
+      this.label.setPosition(sp.x, sp.y - this.radius - 26);
       this.label.setText(this.name + ' (down)');
-      this.hpBar.setPosition(this.x, this.y - this.radius - 12);
+      this.hpBar.setPosition(sp.x, sp.y - this.radius - 12);
       this.hpBar.setValue(0);
       return;
     }
@@ -209,8 +213,8 @@ export default class Player {
     g.lineTo(fx, fy);
     g.strokePath();
 
-    this.label.setPosition(this.x, this.y - this.radius - 26);
-    this.hpBar.setPosition(this.x, this.y - this.radius - 12);
+    this.label.setPosition(sp.x, sp.y - this.radius - 26);
+    this.hpBar.setPosition(sp.x, sp.y - this.radius - 12);
     this.hpBar.setValue(this.hp / this.maxHp);
   }
 }

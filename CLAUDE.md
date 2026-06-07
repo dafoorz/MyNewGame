@@ -59,6 +59,16 @@ src/
 
 ## Conventions / gotchas
 
+- **Isometric rendering is client-only (`src/iso.js`).** The whole simulation
+  stays in flat world (x, y) space — server authoritative, all logic/multiplayer
+  unchanged. Each scene puts world GRAPHICS (ground, bodies, telegraphs,
+  projectiles, FX) in a transformed "world container" (`this.world`) so circles
+  become ellipses, AoE telegraphs distort, and the grid is a diamond, for free.
+  Text + health bars are NOT in the container (a rotated, non-uniform-scaled
+  parent shears them) — they stay scene-space, positioned via `project(x,y)`.
+  Depth-sort by world `x+y` (`this.world.sort('depth')` each frame). Input is
+  rotated to world via `dirToWorld`; the cursor is `unproject`ed for aim/facing.
+  **Fall back to top-down anytime with `?iso=0`** (projection becomes identity).
 - **No build step.** Plain ES modules in the browser. Don't add bundlers.
 - **Cache-busting:** the script tag in `index.html` is `src/main.js?v=N`. Bump
   `N` whenever client JS changes, or mobile browsers serve stale code.

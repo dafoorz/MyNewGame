@@ -2,6 +2,7 @@ import { CONFIG } from '../config.js';
 import HealthBar from '../ui/HealthBar.js';
 import BossCore from '../world/BossCore.js';
 import { DEFAULT_BOSS } from '../world/bosses.js';
+import { depth } from '../iso.js';
 
 // Solo boss: a thin Phaser renderer around the shared, data-driven BossCore
 // (src/world/BossCore.js + bosses.js). The core runs the whole state machine
@@ -59,6 +60,7 @@ export default class Boss {
     g.clear();
     if (!this.core.alive) return;
     const c = this.core;
+    g.depth = depth(c.x, c.y);
     g.fillStyle(c.color, 1);
     g.fillCircle(c.x, c.y, c.radius);
     g.lineStyle(c.enraged ? 4 : 3, c.enraged ? 0xff3a3a : 0x000000, c.enraged ? 0.9 : 0.4);
@@ -73,6 +75,7 @@ export default class Boss {
   drawTelegraph() {
     const g = this.telegraphGfx;
     g.clear();
+    g.depth = -1000; // ground decal: above the floor, below all bodies
     const t = this.core.telegraph;
     if (!t || this.core.state !== 'windup') return;
     drawTelegraph(g, t, this.core.progress());

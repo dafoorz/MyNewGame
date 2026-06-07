@@ -17,6 +17,7 @@ import {
   STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
   rollDrop, rollItem, rarityColor,
 } from '../items.js';
+import { applyIso, project, unproject, dirToWorld, zoneBounds } from '../iso.js';
 
 const STAT_INFO = [
   ['STR', 'melee damage'],
@@ -35,6 +36,12 @@ export default class GameScene extends Phaser.Scene {
 
   create(data) {
     this.isTouch = this.sys.game.device.input.touch || 'ontouchstart' in window;
+
+    // Isometric world container: all world GRAPHICS live here and inherit the
+    // iso transform (ground, bodies, telegraphs, projectiles, FX). Text and
+    // health bars stay in scene space, positioned via project() so they stay
+    // crisp. The simulation itself is unchanged — flat world coordinates.
+    this.world = applyIso(this.add.container(0, 0));
 
     // --- chosen class -> player build ---
     this.classKey = (data && data.classKey) || DEFAULT_CLASS;
@@ -56,6 +63,7 @@ export default class GameScene extends Phaser.Scene {
       threatMultiplier: this.classDef.threat,
       attackRange: this.basic.range,
     });
+    this.world.add(this.player.gfx); // body into the iso world layer
 
     // Restore this class's saved progress on this device (if any).
     const saved = loadProgress(this.classKey);
@@ -88,9 +96,11 @@ export default class GameScene extends Phaser.Scene {
     this.respawnToken = 0;
     this.autoAim = false;
 
-    this.zoneGfx = this.add.graphics().setDepth(-1);
-    this.portalGfx = this.add.graphics().setDepth(1);
-    this.projGfx = this.add.graphics().setDepth(7);
+    // Ground at the bottom, portals just above it, projectiles above bodies.
+    // (Bodies/telegraphs depth-sort by world position; see iso depth().)
+    this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
+    this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
+    this.projGfx = this.add.graphics(); this.projGfx.depth = 1e7; this.world.add(this.projGfx);
 
     this.setupInput();
     this.buildHud();
@@ -144,7 +154,8 @@ export default class GameScene extends Phaser.Scene {
     this.portalSprites.forEach((o) => o.destroy());
     this.portalSprites = [];
 
-    this.cameras.main.setBounds(0, 0, z.size.w, z.size.h);
+    const zb = zoneBounds(z.size.w, z.size.h); // camera bounds in projected space
+    this.cameras.main.setBounds(zb.x, zb.y, zb.w, zb.h);
     this.player.bounds = bounds;
 
     const entry = z.portals.find((p) => p.to === fromKey);
@@ -189,10 +200,11 @@ export default class GameScene extends Phaser.Scene {
       g.fillCircle(p.x, p.y, 40);
       g.lineStyle(3, 0x6cd0ff, 0.9);
       g.strokeCircle(p.x, p.y, 40);
-      const label = this.add.text(p.x, p.y - 56, p.label, {
+      const sp = project(p.x, p.y);
+      const label = this.add.text(sp.x, sp.y - 56, p.label, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '14px', fontStyle: 'bold',
         color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4,
-      }).setOrigin(0.5).setDepth(2);
+      }).setOrigin(0.5).setDepth(40);
       this.portalSprites.push(label);
     }
   }
@@ -201,8 +213,16 @@ export default class GameScene extends Phaser.Scene {
     for (let i = 0; i < z.mobCount; i++) {
       const typeKey = Phaser.Utils.Array.GetRandom(z.mobTypes);
       const pos = this.randomSpawnPos(z);
-      this.mobs.push(new Mob(this, typeKey, pos.x, pos.y, z.mobLevel, bounds));
+      this.mobs.push(this.isoAdopt(new Mob(this, typeKey, pos.x, pos.y, z.mobLevel, bounds)));
     }
+  }
+
+  // Move an entity's world graphics into the iso world layer (its label/health
+  // bar stay scene-space and are positioned via project()). Returns the entity.
+  isoAdopt(e) {
+    if (e.gfx) this.world.add(e.gfx);
+    if (e.telegraphGfx) this.world.add(e.telegraphGfx);
+    return e;
   }
 
   randomSpawnPos(z) {
@@ -218,7 +238,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnBossEncounter(bounds) {
     const cx = bounds.w / 2, cy = bounds.h / 2;
-    this.boss = new Boss(this, cx, cy - 40, { bounds, bossKey: this.zone.boss });
+    this.boss = this.isoAdopt(new Boss(this, cx, cy - 40, { bounds, bossKey: this.zone.boss }));
     this.aggro.register(this.player);
   }
 
@@ -226,7 +246,7 @@ export default class GameScene extends Phaser.Scene {
   // respawns (summons are tied to the fight, not the zone's normal spawns).
   spawnAdd(typeKey, x, y, level) {
     if (this.mobs.length >= 40) return;
-    const mob = new Mob(this, typeKey, x, y, level, this.bounds);
+    const mob = this.isoAdopt(new Mob(this, typeKey, x, y, level, this.bounds));
     mob.summoned = true; mob.engaged = true;
     this.mobs.push(mob);
   }
@@ -376,8 +396,8 @@ export default class GameScene extends Phaser.Scene {
     const px = this.player.x, py = this.player.y;
     if (this.autoAim) { const e = this.nearestEnemy(); if (e) return { x: e.x, y: e.y }; }
     else if (!this.isTouch) {
-      const p = this.input.activePointer;
-      let dx = p.worldX - px, dy = p.worldY - py;
+      const wp = unproject(this.input.activePointer.worldX, this.input.activePointer.worldY);
+      let dx = wp.x - px, dy = wp.y - py;
       const d = Math.hypot(dx, dy) || 1;
       if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
       return { x: px + dx, y: py + dy };
@@ -556,7 +576,7 @@ export default class GameScene extends Phaser.Scene {
         const hp = Math.round(30 + this.progression.level * 8 + this.player.stats.INT * 2);
         for (let i = 0; i < def.count; i++) {
           const ang = Math.random() * Math.PI * 2;
-          const mn = new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds);
+          const mn = this.isoAdopt(new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds));
           mn.threatMultiplier = 1.0; // minions share the same threat weight as non-tank classes
           if (this.boss) this.aggro.register(mn);
           this.minions.push(mn);
@@ -617,7 +637,7 @@ export default class GameScene extends Phaser.Scene {
     this.time.delayedCall(8000, () => {
       if (token !== this.respawnToken) return;
       const pos = this.randomSpawnPos(z);
-      this.mobs.push(new Mob(this, mob.typeKey, pos.x, pos.y, mob.level, this.bounds));
+      this.mobs.push(this.isoAdopt(new Mob(this, mob.typeKey, pos.x, pos.y, mob.level, this.bounds)));
     });
   }
 
@@ -709,8 +729,11 @@ export default class GameScene extends Phaser.Scene {
     const bossWasAlive = this.boss && this.boss.alive;
 
     if (this.player.alive) {
+      // Movement intent is in SCREEN space; rotate it into world space so the
+      // controls feel aligned with the isometric view (dirToWorld).
       if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
-        this.player.moveBy(this.move.x, this.move.y, dt);
+        const w = dirToWorld(this.move.x, this.move.y);
+        this.player.moveBy(w.x, w.y, dt);
       } else {
         let mx = 0, my = 0;
         const b = this.settings.binds;
@@ -721,8 +744,8 @@ export default class GameScene extends Phaser.Scene {
           if (this.held.has(b.down)) my += 1;
         }
         if (mx !== 0 || my !== 0) {
-          const len = Math.hypot(mx, my);
-          this.player.moveBy(mx / len, my / len, dt);
+          const w = dirToWorld(mx, my);
+          this.player.moveBy(w.x, w.y, dt);
         }
       }
     }
@@ -732,11 +755,13 @@ export default class GameScene extends Phaser.Scene {
       if (e) this.player.facing = Math.atan2(e.y - this.player.y, e.x - this.player.x);
     } else if (this.isTouch) {
       if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
-        this.player.facing = Math.atan2(this.move.y, this.move.x);
+        const w = dirToWorld(this.move.x, this.move.y);
+        this.player.facing = Math.atan2(w.y, w.x);
       }
     } else {
       const p = this.input.activePointer;
-      this.player.facing = Math.atan2(p.worldY - this.player.y, p.worldX - this.player.x);
+      const wp = unproject(p.worldX, p.worldY); // cursor -> world target
+      this.player.facing = Math.atan2(wp.y - this.player.y, wp.x - this.player.x);
     }
 
     this.player.update(dt);
@@ -770,6 +795,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (!this.player.alive) this.respawnInTown();
 
+    this.world.sort('depth'); // painter's order for the iso world layer
     this.checkPortals();
     this.centerCamera(false);
     this.updateHud();
@@ -804,8 +830,9 @@ export default class GameScene extends Phaser.Scene {
 
   centerCamera(snap) {
     const cam = this.cameras.main;
-    const tx = this.player.x - cam.width / 2;
-    const ty = this.player.y - cam.height / 2;
+    const sp = project(this.player.x, this.player.y); // follow the projected position
+    const tx = sp.x - cam.width / 2;
+    const ty = sp.y - cam.height / 2;
     if (snap) { cam.scrollX = tx; cam.scrollY = ty; }
     else {
       cam.scrollX += (tx - cam.scrollX) * 0.12;
@@ -1088,7 +1115,7 @@ export default class GameScene extends Phaser.Scene {
   // ======================================================= EFFECTS / FX =====
 
   spawnSwingArc(player, range, half) {
-    const gfx = this.add.graphics().setDepth(15);
+    const gfx = this.add.graphics(); gfx.depth = 5e6; this.world.add(gfx);
     const cx = player.x, cy = player.y, facing = player.facing;
     let t = 0;
     const ev = this.time.addEvent({
@@ -1112,7 +1139,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnRing(x, y, radius, colorHex) {
     const color = this.hexToInt(colorHex, 0xc89bff);
-    const fx = this.add.graphics().setDepth(12);
+    const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx);
     let t = 0;
     const ev = this.time.addEvent({
       delay: 16, loop: true,
@@ -1128,7 +1155,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnBlastFx(x, y, radius, colorHex) {
     const color = this.hexToInt(colorHex, 0xff7a3c);
-    const fx = this.add.graphics().setDepth(12);
+    const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx);
     let t = 0;
     const ev = this.time.addEvent({
       delay: 16, loop: true,
@@ -1152,10 +1179,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnText(x, y, value, color = '#ffffff', big = false) {
-    const txt = this.add.text(x, y, String(value), {
+    const sp = project(x, y); // floating text lives in screen space at the projected spot
+    const txt = this.add.text(sp.x, sp.y, String(value), {
       fontFamily: 'Segoe UI, sans-serif', fontSize: big ? '20px' : '14px', fontStyle: 'bold',
       color, stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(80);
-    this.tweens.add({ targets: txt, y: y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() });
+    this.tweens.add({ targets: txt, y: sp.y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() });
   }
 }
