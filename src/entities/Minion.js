@@ -1,6 +1,8 @@
 // Friendly summoned minion (Necromancer). Chases the nearest enemy and melees
 // it; follows the player when nothing is in range. Expires after `duration`.
 
+import { depth } from '../iso.js';
+
 export default class Minion {
   constructor(scene, x, y, damage, maxHp, duration, bounds) {
     this.scene = scene;
@@ -60,6 +62,7 @@ export default class Minion {
     const g = this.gfx;
     g.clear();
     if (!this.alive) return;
+    g.depth = depth(this.x, this.y);
     const fade = this.life < 2 ? 0.4 + 0.6 * (this.life / 2) : 1;
     g.fillStyle(0x9ad17a, fade);
     g.fillCircle(this.x, this.y, this.radius);

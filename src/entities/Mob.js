@@ -1,5 +1,6 @@
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
+import { project, depth } from '../iso.js';
 
 // A zone mob. Idle until the player gets close, then chases (melee) or kites
 // and shoots (ranged). Leashes back to its spawn if the player runs far away.
@@ -154,9 +155,11 @@ export default class Mob {
     }
     g.lineStyle(2, 0x000000, 0.35);
     g.strokeCircle(this.x, this.y, this.radius);
+    g.depth = depth(this.x, this.y);
 
-    this.label.setPosition(this.x, this.y - this.radius - 20);
-    this.hpBar.setPosition(this.x, this.y - this.radius - 9);
+    const sp = project(this.x, this.y);
+    this.label.setPosition(sp.x, sp.y - this.radius - 20);
+    this.hpBar.setPosition(sp.x, sp.y - this.radius - 9);
     this.hpBar.setValue(this.hp / this.maxHp);
   }
 
