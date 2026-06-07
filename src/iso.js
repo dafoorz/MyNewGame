@@ -57,6 +57,18 @@ export function dirToWorld(ix, iy) {
 // Painter's-order depth for a world position (closer to the camera = larger).
 export function depth(x, y) { return x + y; }
 
+// Depth for an upright billboard (entity) in SCENE space: sorts entities by
+// ground position while staying in a band above the floor and below the HUD.
+export function bodyDepth(x, y) { return 10 + (x + y) * 0.018; }
+
+// Project a world-space DIRECTION (no translation) to a normalized screen-space
+// direction — used to point a billboard's facing marker along the iso ground.
+export function projectDir(dx, dy) {
+  const p = project(dx, dy);
+  const len = Math.hypot(p.x, p.y) || 1;
+  return { x: p.x / len, y: p.y / len };
+}
+
 // Scene-space AABB of a w×h world zone — for camera bounds. { x, y, w, h }.
 export function zoneBounds(w, h) {
   if (!ENABLED) return { x: 0, y: 0, w, h };

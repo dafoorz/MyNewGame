@@ -63,7 +63,8 @@ export default class GameScene extends Phaser.Scene {
       threatMultiplier: this.classDef.threat,
       attackRange: this.basic.range,
     });
-    this.world.add(this.player.gfx); // body into the iso world layer
+    // The player BODY is an upright billboard in scene space (not the squashed
+    // world container) — only its ground position is projected.
 
     // Restore this class's saved progress on this device (if any).
     const saved = loadProgress(this.classKey);
@@ -100,7 +101,7 @@ export default class GameScene extends Phaser.Scene {
     // (Bodies/telegraphs depth-sort by world position; see iso depth().)
     this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
     this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
-    this.projGfx = this.add.graphics(); this.projGfx.depth = 1e7; this.world.add(this.projGfx);
+    this.projGfx = this.add.graphics().setDepth(53); // projectiles: upright billboards
 
     this.setupInput();
     this.buildHud();
@@ -217,10 +218,9 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Move an entity's world graphics into the iso world layer (its label/health
-  // bar stay scene-space and are positioned via project()). Returns the entity.
+  // Boss telegraphs are ground decals → they belong in the iso world layer so
+  // they distort onto the floor. Bodies stay upright in scene space.
   isoAdopt(e) {
-    if (e.gfx) this.world.add(e.gfx);
     if (e.telegraphGfx) this.world.add(e.telegraphGfx);
     return e;
   }
@@ -700,8 +700,9 @@ export default class GameScene extends Phaser.Scene {
         }
         if (hitMinion) continue;
       }
+      const psp = project(pr.x, pr.y);
       g.fillStyle(pr.color, 1);
-      g.fillCircle(pr.x, pr.y, pr.r);
+      g.fillCircle(psp.x, psp.y, pr.r);
       next.push(pr);
     }
     this.projectiles = next;
