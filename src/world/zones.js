@@ -64,8 +64,40 @@ export const ZONES = {
     name: "Colossus' Lair",
     size: { w: 1100, h: 800 },
     bg: 0x1c0f12, accent: 0x3a1a1f,
-    boss: true,
-    portals: [{ x: 40, y: 400, to: 'caves', label: '← Caves' }],
+    boss: 'colossus',
+    portals: [
+      { x: 40, y: 400, to: 'caves', label: '← Caves' },
+      { x: 1060, y: 400, to: 'crypt', label: 'Hollow Crypt →' },
+    ],
+  },
+  crypt: {
+    name: 'Hollow Crypt',
+    size: { w: 1200, h: 860 },
+    bg: 0x12131c, accent: 0x2a2c40,
+    boss: 'bonelord',
+    portals: [
+      { x: 40, y: 430, to: 'lair', label: "← Colossus' Lair" },
+      { x: 1160, y: 430, to: 'ember', label: 'Ember Hollow →' },
+    ],
+  },
+  ember: {
+    name: 'Ember Hollow',
+    size: { w: 1340, h: 920 },
+    bg: 0x241009, accent: 0x4a2012,
+    boss: 'embermaw',
+    portals: [
+      { x: 40, y: 460, to: 'crypt', label: '← Hollow Crypt' },
+      { x: 1300, y: 460, to: 'voidthrone', label: 'Void Throne →' },
+    ],
+  },
+  voidthrone: {
+    name: 'Void Throne',
+    size: { w: 1400, h: 960 },
+    bg: 0x130c20, accent: 0x2c1a48,
+    boss: 'sunderer',
+    portals: [
+      { x: 40, y: 480, to: 'ember', label: '← Ember Hollow' },
+    ],
   },
 };
 

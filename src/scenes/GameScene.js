@@ -205,8 +205,38 @@ export default class GameScene extends Phaser.Scene {
 
   spawnBossEncounter(bounds) {
     const cx = bounds.w / 2, cy = bounds.h / 2;
-    this.boss = new Boss(this, cx, cy - 40, { bounds });
+    this.boss = new Boss(this, cx, cy - 40, { bounds, bossKey: this.zone.boss });
     this.aggro.register(this.player);
+  }
+
+  // Boss-summoned add: spawn near the boss, pre-engaged, flagged so it never
+  // respawns (summons are tied to the fight, not the zone's normal spawns).
+  spawnAdd(typeKey, x, y, level) {
+    if (this.mobs.length >= 40) return;
+    const mob = new Mob(this, typeKey, x, y, level, this.bounds);
+    mob.summoned = true; mob.engaged = true;
+    this.mobs.push(mob);
+  }
+
+  // Per-frame adapter the shared BossCore uses (mirrors the server's Zone one).
+  bossAdapter() {
+    return {
+      bounds: this.bounds,
+      getCombatants: () => {
+        const list = [];
+        if (this.player.alive && !this.player.stealth) list.push(this.player);
+        for (const mn of this.minions) if (mn.alive) list.push(mn);
+        return list;
+      },
+      getTarget: () => this.aggro.getTarget(),
+      hit: (e, amount) => {
+        const dealt = e.takeDamage(amount);
+        this.spawnText(e.x, e.y - e.radius - 4, dealt != null ? dealt : amount, '#ff6b6b');
+        if (!e.alive) this.aggro.remove(e);
+      },
+      spawnAdd: (typeKey, x, y, level) => this.spawnAdd(typeKey, x, y, level),
+      addFx: (f) => { if (f.t === 'text') this.spawnText(f.x, f.y, f.msg, f.color, f.big); },
+    };
   }
 
   checkPortals() {
@@ -561,8 +591,10 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     this.persist();
+    const wasSummoned = mob.summoned;
     mob.destroy();
     this.mobs = this.mobs.filter((m) => m !== mob);
+    if (wasSummoned) return; // boss adds don't respawn
 
     const token = this.respawnToken;
     const z = this.zone;
@@ -715,29 +747,8 @@ export default class GameScene extends Phaser.Scene {
     this.updateDots(dt);
 
     if (this.boss) {
-      this.boss.update(dt, {
-        players: [this.player, ...this.minions.filter((mn) => mn.alive)],
-        aggro: this.aggro,
-        onHit: (pl, amount) => {
-          const dealt = pl.takeDamage(amount);
-          this.spawnText(pl.x, pl.y - pl.radius - 4, dealt, '#ff6b6b');
-          if (!pl.alive) this.aggro.remove(pl);
-        },
-      });
-      if (bossWasAlive && !this.boss.alive) {
-        this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
-        let full = false;
-        for (let i = 0; i < 2; i++) { // two guaranteed high-rarity boss drops
-          const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
-          if (this.inventory.length < INV_CAP) {
-            this.inventory.push(drop);
-            this.spawnText(this.player.x + (i ? 60 : -60), this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
-          } else full = true;
-        }
-        if (full) this.spawnText(this.player.x, this.player.y - 60, 'Backpack full — make room!', '#ff7a7a');
-        if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
-        this.persist();
-      }
+      this.boss.update(dt, this.bossAdapter());
+      if (bossWasAlive && !this.boss.alive) this.onBossDeath();
     }
 
     if (!this.player.alive) this.respawnInTown();
@@ -745,6 +756,26 @@ export default class GameScene extends Phaser.Scene {
     this.checkPortals();
     this.centerCamera(false);
     this.updateHud();
+  }
+
+  onBossDeath() {
+    const { loot, xp } = this.boss.cfg;
+    this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
+    if (this.progression.addXp(xp)) this.onLevelUp();
+    this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
+    let full = false;
+    for (let i = 0; i < loot.count; i++) {
+      const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+      if (this.inventory.length < INV_CAP) {
+        this.inventory.push(drop);
+        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+      } else full = true;
+    }
+    if (full) this.spawnText(this.player.x, this.player.y - 80, 'Backpack full — make room!', '#ff7a7a');
+    // Despawn leftover summoned adds.
+    this.mobs = this.mobs.filter((m) => { if (m.summoned) { this.aggro.remove(m); m.destroy(); return false; } return true; });
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+    this.persist();
   }
 
   respawnInTown() {

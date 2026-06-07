@@ -158,5 +158,8 @@ directly — one source of truth for both sides.
 ## Tuning
 
 Most balance knobs live in `src/config.js` (threat multipliers, stat presets,
-arena size) and at the top of `src/entities/Boss.js` (`ATTACKS` damage/timings,
-boss HP). Tweak and reload.
+arena size) and in `src/world/bosses.js` (per-boss HP, attacks, enrage, loot).
+Bosses are data-driven: the shared `src/world/BossCore.js` state machine runs
+every boss for both solo and online, so adding a boss = a new entry in
+`bosses.js` + a zone in `src/world/zones.js` that points its `boss:` at it.
+Tweak and reload.
