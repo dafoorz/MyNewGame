@@ -109,6 +109,10 @@ export function resolveSkill(zone, player, def) {
       player.applyBuff(1, 1.3, def.duration);
       zone.addFx({ t: 'text', x: player.x, y: player.y - 30, msg: 'STEALTH', color: '#9aa6c4' });
       break;
+    case 'block':
+      player.applyBlock(def.duration || 0.8);
+      zone.addFx({ t: 'text', x: player.x, y: player.y - 30, msg: 'BLOCK!', color: '#4ad0ff' });
+      break;
     case 'dash': {
       const b = player.bounds;
       player.x = Math.max(player.radius, Math.min(b.w - player.radius, player.x + Math.cos(player.facing) * def.distance));

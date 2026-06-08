@@ -12,6 +12,7 @@ import { CLASSES, DEFAULT_CLASS } from '../classes/classes.js';
 import { loadProgress, saveProgress, clearProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
+import MapPanel from '../ui/MapPanel.js';
 import {
   STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
   rollDrop, rollItem, rarityColor,
@@ -103,6 +104,10 @@ export default class GameScene extends Phaser.Scene {
       onUnequip: (slot) => this.unequipItem(slot),
       onDiscard: (itemId) => this.discardItem(itemId),
     });
+    this.mapPanel = new MapPanel(this, {
+      getZoneKey: () => this.zoneKey,
+      onTravel: (key) => { this.loadZone(key, null); },
+    });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
       onResetProgress: () => { clearProgress(this.classKey); this.scene.restart({ classKey: this.classKey }); },
@@ -151,8 +156,15 @@ export default class GameScene extends Phaser.Scene {
     this.drawZoneBackground(z);
     this.drawPortals(z);
 
-    if (z.boss) this.spawnBossEncounter(bounds);
-    else if (z.mobTypes) this.spawnMobs(z, bounds);
+    if (z.raid) {
+      this.raidState = 'wave1';
+      this.spawnRaidWave(12);
+      this.showZoneBanner('Ancient Bastion — Defeat the enemies!');
+    } else if (z.boss) {
+      this.spawnBossEncounter(bounds);
+    } else if (z.mobTypes) {
+      this.spawnMobs(z, bounds);
+    }
 
     this.portalLock = true;
     this.showZoneBanner(z.name);
@@ -215,6 +227,106 @@ export default class GameScene extends Phaser.Scene {
     this.aggro.register(this.mage);
   }
 
+  spawnAdd(typeKey, x, y, level) {
+    if (this.mobs.length >= 40) return;
+    const mob = new Mob(this, typeKey, x, y, level, this.bounds);
+    mob.summoned = true; mob.engaged = true;
+    this.mobs.push(mob);
+  }
+
+  spawnRaidWave(count) {
+    const z = this.zone;
+    for (let i = 0; i < count; i++) {
+      const typeKey = Phaser.Utils.Array.GetRandom(z.mobTypes);
+      const pos = this.randomSpawnPos(z);
+      this.mobs.push(new Mob(this, typeKey, pos.x, pos.y, z.mobLevel, this.bounds));
+    }
+  }
+
+  spawnRaidBossFor(bossKey) {
+    const cx = this.bounds.w / 2, cy = this.bounds.h / 2;
+    this.boss = new Boss(this, cx, cy - 40, { bounds: this.bounds, bossKey });
+    this.aggro = new AggroTable();
+    this.aggro.register(this.player);
+    for (const mn of this.minions) this.aggro.register(mn);
+  }
+
+  clearRaidBoss() {
+    if (!this.boss) return;
+    const { loot, xp } = this.boss.cfg;
+    this.spawnText(this.bounds.w / 2, this.bounds.h / 2 - 80, `${this.boss.name} defeated!`, '#7CFC9A', true);
+    if (this.progression.addXp(xp)) this.onLevelUp();
+    this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
+    for (let i = 0; i < loot.count; i++) {
+      const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+      if (this.inventory.length < INV_CAP) {
+        this.inventory.push(drop);
+        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+      }
+    }
+    this.mobs = this.mobs.filter((m) => { if (m.summoned) { this.aggro.remove(m); m.destroy(); return false; } return true; });
+    this.boss.destroy();
+    this.boss = null;
+    this.aggro = new AggroTable();
+    this.aggro.register(this.player);
+    this.persist();
+  }
+
+  checkRaidProgress() {
+    const liveMobs = this.mobs.filter((m) => !m.summoned);
+    const bossAlive = this.boss && this.boss.alive;
+    if (this.raidState === 'wave1' && liveMobs.length === 0) {
+      this.raidState = 'boss1';
+      this.spawnRaidBossFor('guardian');
+      this.showZoneBanner('BOSS: Guardian of the Bastion!');
+    } else if (this.raidState === 'boss1' && this.boss && !bossAlive) {
+      this.clearRaidBoss();
+      this.raidState = 'wave2';
+      this.spawnRaidWave(8);
+      this.showZoneBanner('More enemies incoming!');
+    } else if (this.raidState === 'wave2' && liveMobs.length === 0) {
+      this.raidState = 'boss2';
+      this.spawnRaidBossFor('warden');
+      this.showZoneBanner('BOSS: Warden of Chains!');
+    } else if (this.raidState === 'boss2' && this.boss && !bossAlive) {
+      this.clearRaidBoss();
+      this.raidState = 'final';
+      this.spawnRaidBossFor('worldbreaker');
+      this.showZoneBanner('THE WORLDBREAKER AWAKENS!');
+    } else if (this.raidState === 'final' && this.boss && !bossAlive) {
+      this.raidState = 'done';
+      this.onBossDeath();
+      this.showZoneBanner('RAID COMPLETE! Ancient Bastion cleared!');
+    }
+  }
+
+  bossAdapter() {
+    return {
+      bounds: this.bounds,
+      getCombatants: () => {
+        const list = [];
+        if (this.player && this.player.alive) list.push(this.player);
+        if (this.mage && this.mage.alive) list.push(this.mage);
+        for (const mn of this.minions) if (mn.alive) list.push(mn);
+        return list;
+      },
+      getTarget: () => this.aggro.getTarget(),
+      hit: (e, amount, blockable) => {
+        let finalAmount = amount;
+        if (blockable && e.isBlocking) {
+          finalAmount = Math.max(1, Math.round(amount * 0.25));
+          this.spawnText(e.x, e.y - e.radius - 10, 'BLOCKED!', '#4ad0ff');
+        }
+        const dealt = e.takeDamage(finalAmount);
+        this.spawnText(e.x, e.y - e.radius - 4, dealt != null ? dealt : finalAmount, '#ff6b6b');
+        if (!e.alive) this.aggro.remove(e);
+      },
+      spawnAdd: (typeKey, x, y, level) => this.spawnAdd(typeKey, x, y, level),
+      addFx: (f) => { if (f.t === 'text') this.spawnText(f.x, f.y, f.msg, f.color, f.big); },
+    };
+  }
+  }
+
   checkPortals() {
     const z = this.zone;
     let onAny = false;
@@ -234,7 +346,7 @@ export default class GameScene extends Phaser.Scene {
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C,I');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,M');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -262,6 +374,8 @@ export default class GameScene extends Phaser.Scene {
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
         case 'inv': this.invPanel.toggle(); break;
+        case 'block': this.useSkill(6); break;
+        case 'map': this.mapPanel.toggle(this.zoneKey); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -281,6 +395,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
+    if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
+    if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
     return false;
   }
 
@@ -493,6 +609,10 @@ export default class GameScene extends Phaser.Scene {
         for (const e of this.enemies()) if (this.inArc(e, this.player.attackRange, 1.3)) this.applyPlayerDamage(e, 'phys', def.mult, true, 1);
         break;
       }
+      case 'block':
+        this.player.applyBlock(def.duration || 0.8);
+        this.spawnText(this.player.x, this.player.y - 30, 'BLOCK!', '#4ad0ff');
+        break;
       case 'dodge': {
         const dist = def.distance * (this.basic.kind === 'ranged' ? 1.5 : 1); // ranged roll farther
         const nx = this.player.x + Math.cos(this.player.facing) * dist;
@@ -726,41 +846,23 @@ export default class GameScene extends Phaser.Scene {
     this.updateProjectiles(dt);
     this.updateDots(dt);
 
+    const bossWasAlive = this.boss && this.boss.alive;
     if (this.boss) {
-      this.mage.aiUpdate(dt, {
-        boss: this.boss,
-        telegraph: this.boss.telegraph,
-        onCast: (amount, crit) => {
-          this.boss.takeDamage(amount, 'Ally');
-          this.aggro.add(this.mage, amount * this.mage.threatMultiplier);
-          this.spawnText(this.boss.x, this.boss.y - this.boss.radius, amount, crit ? '#ffe066' : '#fff', crit);
-        },
-      });
-      const wasAlive = this.boss.alive;
-      this.boss.update(dt, {
-        players: [this.player, this.mage, ...this.minions.filter((mn) => mn.alive)],
-        aggro: this.aggro,
-        onHit: (pl, amount) => {
-          const dealt = pl.takeDamage(amount);
-          this.spawnText(pl.x, pl.y - pl.radius - 4, dealt, '#ff6b6b');
-          if (!pl.alive) this.aggro.remove(pl);
-        },
-      });
-      if (wasAlive && !this.boss.alive) {
-        this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
-        let full = false;
-        for (let i = 0; i < 2; i++) { // two guaranteed high-rarity boss drops
-          const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
-          if (this.inventory.length < INV_CAP) {
-            this.inventory.push(drop);
-            this.spawnText(this.player.x + (i ? 60 : -60), this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
-          } else full = true;
-        }
-        if (full) this.spawnText(this.player.x, this.player.y - 60, 'Backpack full — make room!', '#ff7a7a');
-        if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
-        this.persist();
+      if (this.mage) {
+        this.mage.aiUpdate(dt, {
+          boss: this.boss,
+          telegraph: this.boss.telegraph,
+          onCast: (amount, crit) => {
+            this.boss.takeDamage(amount, 'Ally');
+            this.aggro.add(this.mage, amount * this.mage.threatMultiplier);
+            this.spawnText(this.boss.x, this.boss.y - this.boss.radius, amount, crit ? '#ffe066' : '#fff', crit);
+          },
+        });
       }
+      this.boss.update(dt, this.bossAdapter());
+      if (bossWasAlive && !this.boss.alive && !this.zone.raid) this.onBossDeath();
     }
+    if (this.zone && this.zone.raid) this.checkRaidProgress();
 
     if (!this.player.alive) this.respawnInTown();
 
@@ -774,6 +876,25 @@ export default class GameScene extends Phaser.Scene {
     this.player.hp = this.player.maxHp;
     this.player.damageReduction = 0;
     this.loadZone('town', null);
+  }
+
+  onBossDeath() {
+    if (!this.boss) return;
+    const { loot, xp } = this.boss.cfg;
+    this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
+    if (this.progression.addXp(xp)) this.onLevelUp();
+    this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
+    let full = false;
+    for (let i = 0; i < loot.count; i++) {
+      const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+      if (this.inventory.length < INV_CAP) {
+        this.inventory.push(drop);
+        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+      } else full = true;
+    }
+    if (full) this.spawnText(this.player.x, this.player.y - 60, 'Backpack full — make room!', '#ff7a7a');
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+    this.persist();
   }
 
   centerCamera(snap) {
@@ -867,6 +988,16 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0.5).setDepth(71).setScrollFactor(0);
     invBg.on('pointerdown', () => this.invPanel.toggle());
     this.invBtn = { x: invX, y: invY, r: 22 };
+
+
+    const mapBtnX = CONFIG.width - 44, mapBtnY = 230;
+    const mapBtnBg = this.add.circle(mapBtnX, mapBtnY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(mapBtnX, mapBtnY, 'M', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#6cd0ff' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    mapBtnBg.on('pointerdown', () => this.mapPanel.toggle(this.zoneKey));
+    this.mapBtn = { x: mapBtnX, y: mapBtnY, r: 22 };
+
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -1014,7 +1145,8 @@ export default class GameScene extends Phaser.Scene {
       pr.statPoints > 0 ? `>> ${pr.statPoints} point(s) — press C` : '',
     ].join('\n'));
 
-    this.zoneText.setText(this.zone.name + (this.zone.safe ? '  (safe)' : ''));
+    const raidLabel = this.zone.raid ? ` [${({ wave1: 'Wave 1', boss1: 'Guardian', wave2: 'Wave 2', boss2: 'Warden', final: 'WORLDBREAKER', done: 'CLEARED' })[this.raidState] || ''}]` : '';
+    this.zoneText.setText(this.zone.name + (this.zone.safe ? '  (safe)' : '') + raidLabel);
     this.xpFill.width = CONFIG.width * Phaser.Math.Clamp(pr.xpRatio(), 0, 1);
 
     for (const sb of this.skillBoxes) {

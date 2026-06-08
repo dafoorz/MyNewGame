@@ -38,9 +38,11 @@ export default class Player {
     this.stealthTimer = 0;
     this.nextHitCrit = 0;    // if >0, next damaging hit is a guaranteed crit at this multiplier
     this.invulnTimer = 0;    // i-frames during a Dodge roll: takes no damage while > 0
+    this.isBlocking = false;
+    this.blockTimer = 0;
 
-    // Skill cooldowns (seconds remaining), keyed by slot 1-5.
-    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    // Skill cooldowns (seconds remaining), keyed by slot 1-6.
+    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
 
     // --- visuals ---
     this.gfx = scene.add.graphics().setDepth(10);
@@ -88,6 +90,11 @@ export default class Player {
   applyShield(reduction, seconds) {
     this.damageReduction = reduction;
     this.shieldTimer = seconds;
+  }
+
+  applyBlock(duration) {
+    this.isBlocking = true;
+    this.blockTimer = duration;
   }
 
   heal(amount) {
@@ -157,6 +164,7 @@ export default class Player {
       if (this.stealthTimer <= 0) this.stealth = false;
     }
     if (this.invulnTimer > 0) this.invulnTimer -= dt;
+    if (this.blockTimer > 0) { this.blockTimer -= dt; if (this.blockTimer <= 0) this.isBlocking = false; }
     this.draw();
   }
 
@@ -179,6 +187,10 @@ export default class Player {
     const bodyColor = this.hitFlash > 0 ? 0xffffff : this.color;
     g.fillStyle(bodyColor, this.stealth ? 0.35 : 1);
     g.fillCircle(this.x, this.y, this.radius);
+    if (this.isBlocking) {
+      g.lineStyle(4, 0x4ad0ff, 0.95);
+      g.strokeCircle(this.x, this.y, this.radius * 1.6);
+    }
 
     // Buff aura.
     if (this.buffTimer > 0) {

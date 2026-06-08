@@ -54,7 +54,7 @@ io.on('connection', (socket) => {
 
   socket.on('cast', ({ slot, aimX, aimY } = {}) => {
     const room = rooms.get(currentCode);
-    if (room && slot >= 1 && slot <= 5) room.doCast(socket.id, slot, aimX, aimY);
+    if (room && slot >= 1 && slot <= 6) room.doCast(socket.id, slot, aimX, aimY);
   });
 
   socket.on('spend_stat', ({ attr } = {}) => {
@@ -76,6 +76,13 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentCode);
     if (room) room.discardItem(socket.id, itemId);
   });
+
+
+  socket.on('map_travel', ({ zone } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room && typeof zone === 'string') room.mapTravel(socket.id, zone);
+  });
+
 
   const leave = () => {
     const room = rooms.get(currentCode);

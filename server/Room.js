@@ -1,4 +1,4 @@
-import { START_ZONE } from '../src/world/zones.js';
+import { START_ZONE, ZONES } from '../src/world/zones.js';
 import Zone from './sim/Zone.js';
 import ServerPlayer from './sim/ServerPlayer.js';
 import { resolveSkill } from './sim/skills.js';
@@ -83,6 +83,14 @@ export default class Room {
   equipItem(id, itemId) { const p = this.players.get(id); if (p) p.equip(itemId); }
   unequipItem(id, slot) { const p = this.players.get(id); if (p) p.unequip(slot); }
   discardItem(id, itemId) { const p = this.players.get(id); if (p) p.discard(itemId); }
+
+  mapTravel(id, zoneKey) {
+    const p = this.players.get(id);
+    if (!p) return;
+    const zone = ZONES[zoneKey];
+    if (!zone || zone.dungeon || zone.raid) return;
+    this.movePlayerToZone(p, zoneKey, null);
+  }
 
   doBasic(id) {
     const p = this.players.get(id);

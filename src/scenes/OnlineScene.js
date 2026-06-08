@@ -8,6 +8,7 @@ import { saveProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
 import { rarityColor } from '../items.js';
+import MapPanel from '../ui/MapPanel.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -61,6 +62,10 @@ export default class OnlineScene extends Phaser.Scene {
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('ClassSelectScene'); },
     });
+    this.mapPanel = new MapPanel(this, {
+      getZoneKey: () => this.curZone || 'town',
+      onTravel: (key) => { if (this.net) this.net.sendMapTravel(key); },
+    });
 
     this.inputAcc = 0;
     this.move = { x: 0, y: 0 };
@@ -100,7 +105,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,M');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -127,6 +132,8 @@ export default class OnlineScene extends Phaser.Scene {
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
         case 'inv': this.inventory.toggle(); break;
+        case 'block': this.castSlot(6); break;
+        case 'map': this.mapPanel.toggle(this.curZone); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -142,6 +149,8 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
+    if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
+    if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
     return false;
   }
 
@@ -247,6 +256,7 @@ export default class OnlineScene extends Phaser.Scene {
         g.lineStyle(2, isMe ? 0xffffff : 0xbfc8e0, 0.9); g.strokeCircle(e.rx, e.ry, 16);
         if (p.shield) { g.lineStyle(3, 0x66ccff, 0.9); g.strokeCircle(e.rx, e.ry, 22); }
         if (p.invuln) { g.lineStyle(3, 0x5dd9ff, 0.9); g.strokeCircle(e.rx, e.ry, 27); }
+        if (p.blocking) { g.lineStyle(4, 0x4ad0ff, 0.95); g.strokeCircle(e.rx, e.ry, 26); }
         g.lineStyle(4, 0xffffff, 1); g.beginPath(); g.moveTo(e.rx, e.ry); g.lineTo(e.rx + Math.cos(facing) * 28, e.ry + Math.sin(facing) * 28); g.strokePath();
         e.label.setText(`${isMe ? p.name + ' (you)' : p.name}  Lv${p.level}`);
       }
@@ -300,11 +310,37 @@ export default class OnlineScene extends Phaser.Scene {
       g.fillStyle(CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, 46); g.lineStyle(3, 0x000000, 0.4); g.strokeCircle(b.x, b.y, 46);
       g.fillStyle(0xffd24a, 1); g.fillCircle(b.x + Math.cos(b.facing) * 50, b.y + Math.sin(b.facing) * 50, 8);
     }
-    if (b.telegraph) {
-      const t = b.telegraph; const alpha = 0.25 + t.progress * 0.4;
-      tg.fillStyle(CONFIG.colors.telegraph, alpha); tg.lineStyle(3, CONFIG.colors.telegraph, 0.9);
-      if (t.type === 'cleave') { const steps = 24, start = t.facing - t.halfAngle, end = t.facing + t.halfAngle; tg.beginPath(); tg.moveTo(t.x, t.y); for (let i = 0; i <= steps; i++) { const a = start + ((end - start) * i) / steps; tg.lineTo(t.x + Math.cos(a) * t.range, t.y + Math.sin(a) * t.range); } tg.closePath(); tg.fillPath(); tg.strokePath(); }
-      else { tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius); }
+    if (b.telegraph) this.drawBossTelegraph(tg, b.telegraph);
+  }
+
+  drawBossTelegraph(tg, t) {
+    const alpha = 0.25 + (t.progress || 0) * 0.4;
+    const isBlockable = t.blockable !== false && t.type !== 'safezone';
+    const C = t.type === 'summon' ? 0xc06cff : (isBlockable ? 0xffe066 : 0xff3b3b);
+    if (t.type === 'cleave') {
+      const steps = 24, start = t.facing - t.halfAngle, end = t.facing + t.halfAngle;
+      tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
+      tg.beginPath(); tg.moveTo(t.x, t.y);
+      for (let i = 0; i <= steps; i++) { const a = start + ((end - start) * i) / steps; tg.lineTo(t.x + Math.cos(a) * t.range, t.y + Math.sin(a) * t.range); }
+      tg.closePath(); tg.fillPath(); tg.strokePath();
+    } else if (t.type === 'aoe') {
+      tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
+      tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius);
+    } else if (t.type === 'charge') {
+      const dx = Math.cos(t.facing), dy = Math.sin(t.facing), px = -dy, py = dx, hw = t.width / 2;
+      const ex = t.x + dx * t.length, ey = t.y + dy * t.length;
+      tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
+      tg.beginPath();
+      tg.moveTo(t.x + px * hw, t.y + py * hw); tg.lineTo(ex + px * hw, ey + py * hw);
+      tg.lineTo(ex - px * hw, ey - py * hw); tg.lineTo(t.x - px * hw, t.y - py * hw);
+      tg.closePath(); tg.fillPath(); tg.strokePath();
+    } else if (t.type === 'summon') {
+      tg.lineStyle(3, 0xc06cff, 0.9); tg.fillStyle(0xc06cff, alpha * 0.6);
+      tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius);
+    } else if (t.type === 'safezone') {
+      tg.fillStyle(0xff4040, 0.18 + (t.progress || 0) * 0.22); tg.fillRect(0, 0, t.bw, t.bh);
+      tg.fillStyle(0x4ad06a, 0.35); tg.lineStyle(4, 0x7CFC9A, 0.95);
+      tg.fillCircle(t.x, t.y, t.radius); tg.strokeCircle(t.x, t.y, t.radius);
     }
   }
 
@@ -374,6 +410,16 @@ export default class OnlineScene extends Phaser.Scene {
     const invBg = this.add.circle(invX, invY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x8bd96a, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
     this.add.text(invX, invY, 'I', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#8bd96a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     invBg.on('pointerdown', () => this.inventory.toggle()); this.invBtn = { x: invX, y: invY, r: 22 };
+
+
+    const mapX = CONFIG.width - 44, mapY = 230;
+    const mapBg = this.add.circle(mapX, mapY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(mapX, mapY, 'M', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#6cd0ff' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    mapBg.on('pointerdown', () => this.mapPanel.toggle(this.curZone));
+    this.mapBtn = { x: mapX, y: mapY, r: 22 };
+
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;

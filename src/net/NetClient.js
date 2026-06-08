@@ -50,6 +50,7 @@ export default class NetClient {
   sendEquip(itemId) { if (this.socket) this.socket.emit('equip', { itemId }); }
   sendUnequip(slot) { if (this.socket) this.socket.emit('unequip', { slot }); }
   sendDiscard(itemId) { if (this.socket) this.socket.emit('discard', { itemId }); }
+  sendMapTravel(zone) { if (this.socket) this.socket.emit('map_travel', { zone }); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
   close() { if (this.socket) { this.socket.emit('leave_party'); this.socket.disconnect(); } }
