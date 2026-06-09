@@ -40,7 +40,7 @@ const steer = (snap, sock, name, tx, ty) => {
   const dx = tx - me.x, dy = ty - me.y, d = Math.hypot(dx, dy) || 1;
   sock.emit('input', { mx: dx / d, my: dy / d, facing: 0 });
 };
-const FX = 1160, FY = 220; // town's fixed Forest portal
+const FX = 1450, FY = 260; // town's fixed Forest portal
 const walk = setInterval(() => { steer(aSnap, a, 'Tank', FX, FY); steer(bSnap, b, 'Mage', FX, FY); }, 80);
 const reached = await waitFor(() => aSnap && aSnap.zoneKey === 'forest', 9000);
 clearInterval(walk);
@@ -92,7 +92,8 @@ const fight = setInterval(() => { b.emit('cast', { slot: 1 }); b.emit('basic'); 
 const gotXp = await waitFor(() => bSnap && bSnap.me && (bSnap.me.level > 1 || bSnap.me.xp > 0), 8000);
 clearInterval(fight);
 if (!gotXp) fail('no XP gained from fighting mobs');
-console.log(`  mage gained XP (level ${bSnap.me.level}, xp ${bSnap.me.xp})`);
+if (!(bSnap.me.gold > 0)) fail('no gold gained from killing mobs');
+console.log(`  mage gained XP (level ${bSnap.me.level}, xp ${bSnap.me.xp}), gold ${bSnap.me.gold}`);
 
 // Necromancer minions: join, summon (Raise Dead), confirm minions appear.
 const c = io(URL);
@@ -159,7 +160,7 @@ const d = io(URL);
 let dSnap = null;
 d.on('snapshot', (s) => { dSnap = s; });
 await onConnect(d);
-d.emit('join_party', { code, name: 'Veteran', classKey: 'warrior', progress: { level: 5, xp: 40, statPoints: 2, stats: { STR: 20, DEX: 8, INT: 5, VIT: 18, AGI: 9 } } });
+d.emit('join_party', { code, name: 'Veteran', classKey: 'warrior', progress: { level: 5, xp: 40, statPoints: 2, gold: 5000, stats: { STR: 20, DEX: 8, INT: 5, VIT: 18, AGI: 9 } } });
 await new Promise((res) => d.on('party_joined', res));
 const restored = await waitFor(() => dSnap && dSnap.me && dSnap.me.level === 5, 3000);
 if (!restored) fail('saved progress was not restored on join');
@@ -180,6 +181,26 @@ d.emit('respec_skill', {});
 const respecced = await waitFor(() => dSnap.me.stats.STR === dStr && dSnap.me.skillPoints === dPts, 2000);
 if (!respecced) fail('respec did not refund/revert the skill tree');
 console.log(`  skill tree: spent +STR (${dStr}->${dStr + 2}), rejected gated node, respecced back to ${dStr}`);
+
+// Shop (town only): the Veteran spawns in town with 5000g. Buy a weapon, then
+// equip + upgrade it. Buying must deduct gold and add an item; upgrading must
+// deduct gold and raise the item's total stats.
+if (!(dSnap.me.gold >= 5000)) fail('restored gold was not applied');
+const goldBefore = dSnap.me.gold;
+const invBefore = dSnap.me.inventory.length;
+d.emit('shop_buy', { slot: 'weapon', tier: 'standard' });
+const bought = await waitFor(() => dSnap.me.inventory.length === invBefore + 1 && dSnap.me.gold < goldBefore, 2000);
+if (!bought) fail('shop_buy did not add an item / deduct gold');
+console.log(`  shop buy: gold ${goldBefore} -> ${dSnap.me.gold}, backpack +1`);
+const wep = dSnap.me.inventory.find((it) => it.slot === 'weapon');
+d.emit('equip', { itemId: wep.id });
+const eqd = await waitFor(() => dSnap.me.gear.weapon && dSnap.me.gear.weapon.id === wep.id, 2000);
+if (!eqd) fail('could not equip the purchased weapon');
+const strBeforeUp = dSnap.me.stats.STR, goldBeforeUp = dSnap.me.gold;
+d.emit('shop_upgrade', { slot: 'weapon' });
+const upgraded = await waitFor(() => dSnap.me.gold < goldBeforeUp && (dSnap.me.gear.weapon.plus || 0) >= 1, 2000);
+if (!upgraded) fail('shop_upgrade did not consume gold / raise the item plus');
+console.log(`  shop upgrade: weapon +${dSnap.me.gear.weapon.plus}, gold ${goldBeforeUp} -> ${dSnap.me.gold}`);
 d.disconnect();
 
 // Leave handling: tank disconnects, mage should no longer see them.

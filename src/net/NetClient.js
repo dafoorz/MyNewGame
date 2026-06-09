@@ -55,6 +55,8 @@ export default class NetClient {
   sendMapTravel(waystone) { if (this.socket) this.socket.emit('map_travel', { waystone }); }
   sendSpendSkill(nodeId) { if (this.socket) this.socket.emit('spend_skill', { nodeId }); }
   sendRespecSkill() { if (this.socket) this.socket.emit('respec_skill'); }
+  sendBuy(slot, tier) { if (this.socket) this.socket.emit('shop_buy', { slot, tier }); }
+  sendUpgrade(slot) { if (this.socket) this.socket.emit('shop_upgrade', { slot }); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
   close() { if (this.socket) { this.socket.emit('leave_party'); this.socket.disconnect(); } }

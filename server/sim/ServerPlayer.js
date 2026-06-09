@@ -39,6 +39,7 @@ export default class ServerPlayer {
     this.level = 1;
     this.xp = 0;
     this.statPoints = 0;
+    this.gold = 0;
 
     this.attackTimer = 0;
     this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
@@ -58,6 +59,9 @@ export default class ServerPlayer {
   // Mark the player as "in combat" for the next 5s (attacking or being hit).
   enterCombat() { this.combatTimer = 5; }
   get inCombat() { return this.combatTimer > 0; }
+
+  addGold(n) { this.gold = Math.max(0, this.gold + (n | 0)); }
+  spendGold(n) { if (this.gold < n) return false; this.gold -= n; return true; }
 
   setInput(mx, my, facing) {
     const len = Math.hypot(mx, my);
@@ -94,6 +98,7 @@ export default class ServerPlayer {
     this.level = Math.max(1, p.level | 0);
     this.xp = Math.max(0, p.xp | 0);
     this.statPoints = Math.max(0, p.statPoints | 0);
+    this.gold = Math.max(0, p.gold | 0);
     if (p.stats) for (const k of STAT_KEYS) {
       if (typeof p.stats[k] === 'number') this.baseAttrs[k] = Math.max(this.def.stats[k] || 0, p.stats[k] | 0);
     }
@@ -244,7 +249,7 @@ export default class ServerPlayer {
     const s = this.stats;
     return {
       classKey: this.classKey, // so the inventory UI can gate equip by class
-      level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints,
+      level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints, gold: this.gold,
       cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2), 6: +this.cooldowns[6].toFixed(2) },
       stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI }, // total (base + gear)
       baseStats: { ...this.baseAttrs },
