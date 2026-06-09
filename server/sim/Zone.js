@@ -3,7 +3,7 @@ import Mob from './Mob.js';
 import Minion from './Minion.js';
 import Boss from './Boss.js';
 import AggroTable from './AggroTable.js';
-import { rollDrop, rollItem } from '../../src/items.js';
+import { rollDrop, rollItem, mobGold, bossGold } from '../../src/items.js';
 
 // One zone instance in a party's world. Owns its mobs / boss / projectiles and
 // runs them authoritatively. The Room feeds it the players currently standing in
@@ -239,10 +239,13 @@ export default class Zone {
     const alive = [];
     for (const m of this.mobs) {
       if (m.alive) { alive.push(m); continue; }
-      // Shared XP: every player in the zone gets the kill.
+      // Shared XP + gold: every player in the zone gets the kill.
+      const gold = mobGold(m.level);
       for (const p of this.players) {
         const levels = p.addXp(m.xp);
         this.addFx({ t: 'xp', x: m.x, y: m.y - 20, amount: m.xp });
+        p.addGold(gold);
+        this.addFx({ t: 'gold', x: m.x, y: m.y - 6, amount: gold });
         if (levels > 0) { p.recalc(); p.hp = p.maxHp; this.addFx({ t: 'level', x: p.x, y: p.y - 46, level: p.level }); }
       }
       // Loot: roll a drop and award it to whoever landed the kill.
@@ -259,8 +262,10 @@ export default class Zone {
 
   onBossDeath() {
     const loot = this.boss.cfg.loot, xp = this.boss.cfg.xp;
+    const gold = bossGold(xp);
     for (const p of this.players) {
       const levels = p.addXp(xp); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: xp }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
+      p.addGold(gold); this.addFx({ t: 'gold', x: p.x, y: p.y - 6, amount: gold });
       // Boss loot: every participant gets guaranteed, high-rarity drops scaled by tier.
       let full = false;
       for (let i = 0; i < loot.count; i++) {
@@ -336,10 +341,12 @@ export default class Zone {
   _awardRaidLoot() {
     if (!this.boss) return;
     const loot = this.boss.cfg.loot, xp = this.boss.cfg.xp;
+    const gold = bossGold(xp);
     for (const p of this.players) {
       const levels = p.addXp(xp);
       if (levels > 0) { p.recalc(); p.hp = p.maxHp; this.addFx({ t: 'level', x: p.x, y: p.y - 46, level: p.level }); }
       this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: xp });
+      p.addGold(gold); this.addFx({ t: 'gold', x: p.x, y: p.y - 6, amount: gold });
       let full = false;
       for (let i = 0; i < loot.count; i++) {
         const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });

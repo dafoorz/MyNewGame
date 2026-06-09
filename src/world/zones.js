@@ -82,25 +82,26 @@ export const ZONES = {
   town: {
     name: 'Riverwood (Town)',
     safe: true,
-    size: { w: 1200, h: 820 },
+    size: { w: 1500, h: 1050 },
     bg: 0x1d2a1f, accent: 0x32492f,
+    shop: { x: 750, y: 360 }, // market stall — walk up to it (or press B) to trade
     portals: [
-      { x: 1160, y: 220, to: 'forest',      label: 'Whispering Forest →' },
-      { x: 1160, y: 600, to: 'caves',       label: 'Gloom Caves →' },
-      { x: 40,   y: 600, to: 'emberwastes', label: '← Ember Wastes' },
-      { x: 40,   y: 220, to: 'voidmarches', label: '← Void Marches' },
+      { x: 1450, y: 260, to: 'forest',      label: 'Whispering Forest →' },
+      { x: 1450, y: 800, to: 'caves',       label: 'Gloom Caves →' },
+      { x: 60,   y: 800, to: 'emberwastes', label: '← Ember Wastes' },
+      { x: 60,   y: 260, to: 'voidmarches', label: '← Void Marches' },
     ],
     waystones: [
-      { id: 'town', name: 'Riverwood', x: 600, y: 410 },
+      { id: 'town', name: 'Riverwood', x: 750, y: 560 },
     ],
   },
 
   // --- Tier 1: Whispering Forest -> Colossus' Lair ---
   forest: {
     name: 'Whispering Forest',
-    size: { w: 1700, h: 1100 },
+    size: { w: 2400, h: 1550 },
     bg: 0x14241a, accent: 0x24402a,
-    mobLevel: 2, mobTypes: ['wolf', 'bandit'], mobCount: 8,
+    mobLevel: 2, mobTypes: ['wolf', 'bandit'], mobCount: 15,
     portals: [
       { x: 40, y: 550, to: 'town', label: '← Riverwood' },
       { to: 'lair', random: true, pad: 220, label: "Colossus' Lair →" },
@@ -122,9 +123,9 @@ export const ZONES = {
   // --- Tier 2: Gloom Caves -> Hollow Crypt ---
   caves: {
     name: 'Gloom Caves',
-    size: { w: 1700, h: 1250 },
+    size: { w: 2400, h: 1750 },
     bg: 0x111119, accent: 0x222232,
-    mobLevel: 6, mobTypes: ['skeleton', 'skeleton_archer'], mobCount: 11,
+    mobLevel: 6, mobTypes: ['skeleton', 'skeleton_archer'], mobCount: 18,
     portals: [
       { x: 40, y: 620, to: 'town', label: '← Riverwood' },
       { to: 'crypt', random: true, pad: 240, label: 'Hollow Crypt →' },
@@ -146,9 +147,9 @@ export const ZONES = {
   // --- Tier 3: Ember Wastes -> Ember Hollow ---
   emberwastes: {
     name: 'Ember Wastes',
-    size: { w: 1750, h: 1200 },
+    size: { w: 2500, h: 1700 },
     bg: 0x2a1207, accent: 0x5e2a12,
-    mobLevel: 10, mobTypes: ['ember_imp', 'cinder_archer'], mobCount: 12,
+    mobLevel: 10, mobTypes: ['ember_imp', 'cinder_archer'], mobCount: 20,
     portals: [
       { x: 40, y: 600, to: 'town', label: '← Riverwood' },
       { to: 'ember', random: true, pad: 240, label: 'Ember Hollow →' },
@@ -170,9 +171,9 @@ export const ZONES = {
   // --- Tier 4 (hardest): Void Marches -> Void Throne + Ancient Bastion (raid) ---
   voidmarches: {
     name: 'Void Marches',
-    size: { w: 1900, h: 1300 },
+    size: { w: 2700, h: 1850 },
     bg: 0x140b22, accent: 0x301a52,
-    mobLevel: 15, mobTypes: ['wraith', 'void_seer'], mobCount: 14,
+    mobLevel: 15, mobTypes: ['wraith', 'void_seer'], mobCount: 24,
     portals: [
       { x: 40, y: 650, to: 'town', label: '← Riverwood' },
       { to: 'voidthrone',     random: true, pad: 260, label: 'Void Throne →' },

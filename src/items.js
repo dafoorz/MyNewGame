@@ -83,13 +83,22 @@ export function rollItem({ ilvl = 1, rarityBoost = 0, baseId = null, rarityKey =
   const mainPts = Math.round(budget * 0.7); // 70% to the base's favored stats
   for (let i = 0; i < mainPts; i++) { const k = pick(base.main); stats[k] = (stats[k] || 0) + 1; }
   for (let i = 0; i < budget - mainPts; i++) { const k = pick(STAT_KEYS); stats[k] = (stats[k] || 0) + 1; }
-  return { id: newId(), base: id, slot: base.slot, rarity: rarity.key, ilvl, name: `${rarity.name} ${base.name}`, stats };
+  return { id: newId(), base: id, slot: base.slot, rarity: rarity.key, ilvl, plus: 0, name: `${rarity.name} ${base.name}`, stats };
 }
 
 // Roll whether a mob drops, and what.
 export function rollDrop({ mobLevel = 1, chance = LOOT.mobChance, rarityBoost = 0 } = {}) {
   if (Math.random() > chance) return null;
   return rollItem({ ilvl: mobLevel, rarityBoost: rarityBoost || mobLevel * LOOT.levelToBoost });
+}
+
+// Gold rewards. Every mob drops some gold (scaled by level); bosses pay out a
+// chunk scaled by their XP value. Shared so solo and server stay in step.
+export function mobGold(level = 1) {
+  return Math.max(1, Math.round((4 + level * 2.5) * (0.7 + Math.random() * 0.6)));
+}
+export function bossGold(xp = 0) {
+  return Math.round(xp * 0.6);
 }
 
 // Re-derive a clean item from possibly-untrusted data (saved progress sent by a
@@ -101,7 +110,9 @@ export function sanitizeItem(raw) {
   const rarity = RARITY_BY_KEY[raw.rarity];
   if (!base || !rarity) return null;
   const ilvl = Math.max(1, Math.min(99, (raw.ilvl | 0) || 1));
-  const maxBudget = Math.round((2 + ilvl * 0.7) * rarity.mult) + 2; // small slack
+  const plus = Math.max(0, Math.min(50, (raw.plus | 0) || 0)); // shop upgrade level
+  // Each upgrade (+1) grants UPGRADE_STEP stat points on top of the rolled budget.
+  const maxBudget = Math.round((2 + ilvl * 0.7) * rarity.mult) + 2 + plus * UPGRADE_STEP; // small slack
   const stats = {};
   let used = 0;
   if (raw.stats && typeof raw.stats === 'object') for (const k of STAT_KEYS) {
@@ -110,8 +121,13 @@ export function sanitizeItem(raw) {
     if (v) { stats[k] = v; used += v; }
   }
   const id = typeof raw.id === 'string' ? raw.id.slice(0, 24) : newId();
-  return { id, base: raw.base, slot: base.slot, rarity: rarity.key, ilvl, name: `${rarity.name} ${base.name}`, stats };
+  const name = `${rarity.name} ${base.name}${plus > 0 ? ` +${plus}` : ''}`;
+  return { id, base: raw.base, slot: base.slot, rarity: rarity.key, ilvl, plus, name, stats };
 }
+
+// Stat points granted per shop upgrade (+1). Kept here so sanitizeItem and the
+// shop agree on how much budget an upgraded item is allowed to carry.
+export const UPGRADE_STEP = 2;
 
 // Can a class equip this item? Uses the class's `equip` rules (armor weight
 // classes + weapon kinds it's trained in). Accessories are universal.

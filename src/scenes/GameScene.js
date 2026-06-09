@@ -13,11 +13,13 @@ import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
 import MapPanel from '../ui/MapPanel.js';
 import SkillTreePanel from '../ui/SkillTreePanel.js';
+import ShopPanel from '../ui/ShopPanel.js';
 import { buildFromTree, effectiveSkills, sanitizeAllocation, availablePoints, canSpend } from '../skilltree.js';
 import {
   STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
-  rollDrop, rollItem, rarityColor,
+  rollDrop, rollItem, rarityColor, mobGold, bossGold,
 } from '../items.js';
+import { buyCost, rollShopItem, upgradeCost, upgradeItem } from '../shop.js';
 import { applyIso, project, unproject, dirToWorld, zoneBounds } from '../iso.js';
 
 const STAT_INFO = [
@@ -54,6 +56,7 @@ export default class GameScene extends Phaser.Scene {
     this.discovered = new Set(['town']);  // discovered waystones (fast-travel)
 
     this.progression = new Progression();
+    this.gold = 0;
     // Loot & equipment: base/leveled attributes live in baseAttrs; the player's
     // derived Stats are rebuilt from baseAttrs + equipped gear + skill tree.
     this.baseAttrs = { ...this.classDef.stats };
@@ -76,6 +79,7 @@ export default class GameScene extends Phaser.Scene {
       this.progression.level = Math.max(1, saved.level);
       this.progression.xp = Math.max(0, saved.xp);
       this.progression.statPoints = Math.max(0, saved.statPoints);
+      this.gold = Math.max(0, saved.gold | 0);
       for (const attr of STAT_KEYS) if (saved.stats[attr] != null) this.baseAttrs[attr] = saved.stats[attr];
       if (Array.isArray(saved.inventory)) this.inventory = saved.inventory.map(sanitizeItem).filter(Boolean).slice(0, INV_CAP);
       if (saved.gear) for (const slot of EQUIP_SLOTS) {
@@ -141,6 +145,11 @@ export default class GameScene extends Phaser.Scene {
       onMainMenu: () => { this.persist(); this.scene.start('LobbyScene'); },
       onResetProgress: () => { clearProgress(this.classKey); this.scene.restart({ classKey: this.classKey }); },
     });
+    this.shopPanel = new ShopPanel(this, {
+      getModel: () => ({ classKey: this.classKey, gold: this.gold, gear: this.gear }),
+      onBuy: (slot, tier) => this.buyGear(slot, tier),
+      onUpgrade: (slot) => this.upgradeGear(slot),
+    });
 
     this.loadZone(START_ZONE, null);
   }
@@ -149,6 +158,7 @@ export default class GameScene extends Phaser.Scene {
 
   loadZone(key, fromKey, at = null) {
     this.respawnToken++;
+    if (key !== 'town' && this.shopPanel && this.shopPanel.open) this.shopPanel.close();
     this.zoneKey = key;
     this.zone = ZONES[key];
     const z = this.zone;
@@ -236,6 +246,18 @@ export default class GameScene extends Phaser.Scene {
         color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4,
       }).setOrigin(0.5).setDepth(40);
       this.portalSprites.push(label);
+    }
+    // Town market stall.
+    const shop = this.zone && this.zone.shop;
+    if (shop) {
+      g.fillStyle(0x6a4a1a, 0.5); g.fillCircle(shop.x, shop.y, 34);
+      g.lineStyle(3, 0xffe066, 0.9); g.strokeCircle(shop.x, shop.y, 34);
+      const ssp = project(shop.x, shop.y);
+      const slabel = this.add.text(ssp.x, ssp.y - 50, '🛒 Market (B)', {
+        fontFamily: 'Segoe UI, sans-serif', fontSize: '14px', fontStyle: 'bold',
+        color: '#ffe066', stroke: '#06121c', strokeThickness: 4,
+      }).setOrigin(0.5).setDepth(40);
+      this.portalSprites.push(slabel);
     }
   }
 
@@ -390,6 +412,9 @@ export default class GameScene extends Phaser.Scene {
     this.spawnText(this.bounds.w / 2, this.bounds.h / 2 - 80, `${this.boss.name} defeated!`, '#7CFC9A', true);
     if (this.progression.addXp(xp)) this.onLevelUp();
     this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
+    const gold = bossGold(xp);
+    this.gold += gold;
+    this.spawnText(this.player.x, this.player.y - 84, `+${gold}g`, '#ffe066');
     for (let i = 0; i < loot.count; i++) {
       const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
       if (this.inventory.length < INV_CAP) {
@@ -477,7 +502,7 @@ export default class GameScene extends Phaser.Scene {
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M,B');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -508,6 +533,7 @@ export default class GameScene extends Phaser.Scene {
         case 'block': this.useSkill(6); break;
         case 'map': this.mapPanel.toggle(this.zoneKey); break;
         case 'tree': this.treePanel.toggle(); break;
+        case 'shop': this.openShop(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -531,6 +557,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
     if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
     if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
+    if (this.shopBtn && Math.hypot(p.x - this.shopBtn.x, p.y - this.shopBtn.y) <= this.shopBtn.r) return true;
+    if (this.shopPanel && this.shopPanel.contains(p.x, p.y)) return true;
     return false;
   }
 
@@ -810,6 +838,9 @@ export default class GameScene extends Phaser.Scene {
   handleMobDeath(mob) {
     const levels = this.progression.addXp(mob.xp);
     this.spawnText(mob.x, mob.y - 20, `+${mob.xp} XP`, '#9be8ff');
+    const gold = mobGold(mob.level);
+    this.gold += gold;
+    this.spawnText(mob.x, mob.y - 4, `+${gold}g`, '#ffe066');
     if (levels > 0) this.onLevelUp();
     // Loot: roll a drop scaled by the mob's level.
     const drop = rollDrop({ mobLevel: mob.level });
@@ -1012,10 +1043,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   onBossDeath() {
+    if (!this.boss) return;
     const { loot, xp } = this.boss.cfg;
     this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
     if (this.progression.addXp(xp)) this.onLevelUp();
     this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
+    const gold = bossGold(xp);
+    this.gold += gold;
+    this.spawnText(this.player.x, this.player.y - 84, `+${gold}g`, '#ffe066');
     let full = false;
     for (let i = 0; i < loot.count; i++) {
       const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
@@ -1024,7 +1059,7 @@ export default class GameScene extends Phaser.Scene {
         this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
       } else full = true;
     }
-    if (full) this.spawnText(this.player.x, this.player.y - 80, 'Backpack full — make room!', '#ff7a7a');
+    if (full) this.spawnText(this.player.x, this.player.y - 100, 'Backpack full — make room!', '#ff7a7a');
     // Despawn leftover summoned adds.
     this.mobs = this.mobs.filter((m) => { if (m.summoned) { this.aggro.remove(m); m.destroy(); return false; } return true; });
     if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
@@ -1036,25 +1071,6 @@ export default class GameScene extends Phaser.Scene {
     this.player.hp = this.player.maxHp;
     this.player.damageReduction = 0;
     this.loadZone('town', null);
-  }
-
-  onBossDeath() {
-    if (!this.boss) return;
-    const { loot, xp } = this.boss.cfg;
-    this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
-    if (this.progression.addXp(xp)) this.onLevelUp();
-    this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
-    let full = false;
-    for (let i = 0; i < loot.count; i++) {
-      const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
-      if (this.inventory.length < INV_CAP) {
-        this.inventory.push(drop);
-        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
-      } else full = true;
-    }
-    if (full) this.spawnText(this.player.x, this.player.y - 60, 'Backpack full — make room!', '#ff7a7a');
-    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
-    this.persist();
   }
 
   centerCamera(snap) {
@@ -1165,6 +1181,14 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0.5).setDepth(71).setScrollFactor(0);
     trBg.on('pointerdown', () => this.treePanel.toggle());
     this.treeBtn = { x: trX, y: trY, r: 22 };
+
+    const shX = CONFIG.width - 44, shY = 330;
+    const shBg = this.add.circle(shX, shY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffe066, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(shX, shY, 'B', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffe066' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    shBg.on('pointerdown', () => this.openShop());
+    this.shopBtn = { x: shX, y: shY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -1295,12 +1319,47 @@ export default class GameScene extends Phaser.Scene {
     if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
   }
 
+  // --- town shop (solo, applied locally) ---
+  openShop() {
+    if (this.zoneKey !== 'town') { this.spawnText(this.player.x, this.player.y - 64, 'The shop is in town', '#ffd24a'); return; }
+    this.shopPanel.toggle();
+  }
+
+  buyGear(slot, tier) {
+    if (this.zoneKey !== 'town') return;
+    const cost = buyCost(slot, tier);
+    if (cost == null || this.gold < cost) return;
+    if (this.inventory.length >= INV_CAP) { this.spawnText(this.player.x, this.player.y - 40, 'Backpack full!', '#ff7a7a'); return; }
+    const item = rollShopItem(this.classKey, slot, tier);
+    if (!item) return;
+    this.gold -= cost;
+    this.inventory.push(item);
+    this.spawnText(this.player.x, this.player.y - 40, '✦ ' + item.name, rarityColor(item.rarity));
+    this.persist();
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+  }
+
+  upgradeGear(slot) {
+    if (this.zoneKey !== 'town') return;
+    const item = this.gear[slot];
+    if (!item) return;
+    const cost = upgradeCost(item);
+    if (cost == null || this.gold < cost) return;
+    this.gold -= cost;
+    this.gear[slot] = upgradeItem(item);
+    this.recomputeStats();
+    this.spawnText(this.player.x, this.player.y - 40, 'Upgraded ' + this.gear[slot].name, '#7CFC9A');
+    this.persist();
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+  }
+
   // Save this class's progress to localStorage (per device, per class).
   persist() {
     saveProgress(this.classKey, {
       level: this.progression.level,
       xp: this.progression.xp,
       statPoints: this.progression.statPoints,
+      gold: this.gold,
       stats: { ...this.baseAttrs },
       inventory: this.inventory,
       gear: this.gear,
@@ -1335,6 +1394,7 @@ export default class GameScene extends Phaser.Scene {
       `${this.classDef.name}  Lv ${pr.level}`,
       `HP ${Math.ceil(this.player.hp)}/${this.player.maxHp}`,
       `XP ${pr.xp}/${pr.xpToNext()}`,
+      `Gold ${this.gold.toLocaleString()}`,
       `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`,
       pr.statPoints > 0 ? `>> ${pr.statPoints} stat point(s) — press C` : '',
       this.skillPointsLeft() > 0 ? `>> ${this.skillPointsLeft()} skill point(s) — press K` : '',
