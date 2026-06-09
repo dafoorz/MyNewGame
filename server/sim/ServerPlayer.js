@@ -41,13 +41,23 @@ export default class ServerPlayer {
     this.statPoints = 0;
 
     this.attackTimer = 0;
-    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
     this.damageReduction = 0; this.shieldTimer = 0;
     this.damageMult = 1; this.speedMult = 1; this.buffTimer = 0;
     this.invulnTimer = 0; // i-frames during Dodge
+    this.isBlocking = false;
+    this.blockTimer = 0;
+
+    this.waypoints = new Set(['town']); // discovered fast-travel shrines
+    this.portalLockId = null;           // suppress re-triggering the waystone we arrived on
+    this.combatTimer = 0;               // >0 = in combat (set on hit/attack, decays over 5s)
 
     this.input = { mx: 0, my: 0, facing: this.facing };
   }
+
+  // Mark the player as "in combat" for the next 5s (attacking or being hit).
+  enterCombat() { this.combatTimer = 5; }
+  get inCombat() { return this.combatTimer > 0; }
 
   setInput(mx, my, facing) {
     const len = Math.hypot(mx, my);
@@ -59,6 +69,7 @@ export default class ServerPlayer {
   takeDamage(raw) {
     if (!this.alive || this.invulnTimer > 0) return 0; // i-frames: dodge negates the hit
     const amount = Math.max(0, Math.round(raw * (1 - this.damageReduction)));
+    if (amount > 0) this.enterCombat();
     this.hp -= amount;
     if (this.hp <= 0) { this.hp = 0; this.alive = false; this.deadTimer = 5; }
     return amount;
@@ -72,6 +83,7 @@ export default class ServerPlayer {
   }
 
   applyShield(reduction, duration) { this.damageReduction = reduction; this.shieldTimer = duration; }
+  applyBlock(duration) { this.isBlocking = true; this.blockTimer = duration; }
   applyBuff(damageMult, speedMult, duration) { this.damageMult = damageMult; this.speedMult = speedMult; this.buffTimer = duration; }
 
   // Restore saved progress supplied by the client on join (per-device save).
@@ -90,6 +102,7 @@ export default class ServerPlayer {
       const it = sanitizeItem(p.gear[slot]);
       if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
     }
+    if (Array.isArray(p.waypoints)) for (const w of p.waypoints) if (typeof w === 'string') this.waypoints.add(w);
     // Skill tree: re-derive a legal allocation (saves are not trusted).
     this.skillTree = sanitizeAllocation(this.classKey, p.skillTree, this.level);
     this.recomputeSkillBuild();
@@ -191,10 +204,12 @@ export default class ServerPlayer {
 
   update(dt) {
     if (this.attackTimer > 0) this.attackTimer -= dt;
-    for (const k of [1, 2, 3, 4, 5]) if (this.cooldowns[k] > 0) this.cooldowns[k] -= dt;
+    for (const k of [1, 2, 3, 4, 5, 6]) if (this.cooldowns[k] > 0) this.cooldowns[k] -= dt;
     if (this.shieldTimer > 0) { this.shieldTimer -= dt; if (this.shieldTimer <= 0) this.damageReduction = 0; }
     if (this.buffTimer > 0) { this.buffTimer -= dt; if (this.buffTimer <= 0) { this.damageMult = 1; this.speedMult = 1; } }
     if (this.invulnTimer > 0) this.invulnTimer -= dt;
+    if (this.blockTimer > 0) { this.blockTimer -= dt; if (this.blockTimer <= 0) this.isBlocking = false; }
+    if (this.combatTimer > 0) this.combatTimer -= dt;
 
     if (this.alive && (this.input.mx !== 0 || this.input.my !== 0)) {
       const speed = this.stats.moveSpeed * this.speedMult;
@@ -220,6 +235,7 @@ export default class ServerPlayer {
       x: Math.round(this.x), y: Math.round(this.y), facing: +this.facing.toFixed(3),
       hp: Math.ceil(this.hp), maxHp: this.maxHp, alive: this.alive,
       shield: this.shieldTimer > 0, buff: this.buffTimer > 0, invuln: this.invulnTimer > 0, level: this.level,
+      blocking: this.isBlocking || false,
     };
   }
 
@@ -229,11 +245,13 @@ export default class ServerPlayer {
     return {
       classKey: this.classKey, // so the inventory UI can gate equip by class
       level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints,
-      cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2) },
+      cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2), 6: +this.cooldowns[6].toFixed(2) },
       stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI }, // total (base + gear)
       baseStats: { ...this.baseAttrs },
       inventory: this.inventory,
       gear: this.gear,
+      waypoints: [...this.waypoints],
+      inCombat: this.inCombat,
       skillTree: { ...this.skillTree },
       skillPoints: availablePoints(this.classKey, this.level, this.skillTree),
     };

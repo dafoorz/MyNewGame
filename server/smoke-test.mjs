@@ -33,9 +33,16 @@ if (!aSnap || aSnap.zoneKey !== 'town') fail('expected to spawn in town');
 if (aSnap.players.length !== 2) fail('expected 2 players in town');
 console.log('  spawned in town:', aSnap.players.map((p) => p.name).join(', '));
 
-// Walk both east toward the Forest portal until the zone changes.
-const walk = setInterval(() => { a.emit('input', { mx: 1, my: 0, facing: 0 }); b.emit('input', { mx: 1, my: 0, facing: 0 }); }, 80);
-const reached = await waitFor(() => aSnap && aSnap.zoneKey === 'forest');
+// Steer both toward the Town→Forest portal until the zone changes.
+const steer = (snap, sock, name, tx, ty) => {
+  const me = snap && snap.players && snap.players.find((p) => p.name === name);
+  if (!me) return;
+  const dx = tx - me.x, dy = ty - me.y, d = Math.hypot(dx, dy) || 1;
+  sock.emit('input', { mx: dx / d, my: dy / d, facing: 0 });
+};
+const FX = 1160, FY = 220; // town's fixed Forest portal
+const walk = setInterval(() => { steer(aSnap, a, 'Tank', FX, FY); steer(bSnap, b, 'Mage', FX, FY); }, 80);
+const reached = await waitFor(() => aSnap && aSnap.zoneKey === 'forest', 9000);
 clearInterval(walk);
 a.emit('input', { mx: 0, my: 0, facing: 0 }); b.emit('input', { mx: 0, my: 0, facing: 0 });
 if (!reached) fail('did not transition to forest via portal');
@@ -44,6 +51,41 @@ console.log('  walked through portal to:', aSnap.zoneKey);
 await sleep(300);
 if (!(aSnap.mobs && aSnap.mobs.length > 0)) fail('no mobs spawned in forest');
 console.log('  forest mobs present:', aSnap.mobs.length);
+
+// Waystones: 'town' is auto-discovered; walk onto the Forest Edge shrine to learn it.
+if (!(aSnap.me && aSnap.me.waypoints && aSnap.me.waypoints.includes('town'))) fail('town waystone not auto-discovered');
+const toShrine = setInterval(() => steer(aSnap, a, 'Tank', 160, 550), 80); // forest_entry shrine
+const learned = await waitFor(() => aSnap.me && aSnap.me.waypoints.includes('forest_entry'), 6000);
+clearInterval(toShrine); a.emit('input', { mx: 0, my: 0, facing: 0 });
+if (!learned) fail('did not discover the Forest Edge waystone on contact');
+console.log('  discovered waystone:', aSnap.me.waypoints.filter((w) => w !== 'town').join(', '));
+
+// Fast-travel home via a known waystone; an UNKNOWN one must be rejected.
+a.emit('map_travel', { waystone: 'ember_entry' }); // not discovered -> ignored
+await sleep(200);
+if (aSnap.zoneKey !== 'forest') fail('travel to an undiscovered waystone should be rejected');
+a.emit('map_travel', { waystone: 'town' });        // discovered -> allowed
+const traveled = await waitFor(() => aSnap.zoneKey === 'town', 3000);
+if (!traveled) fail('fast-travel to a discovered waystone failed');
+console.log('  fast-traveled to town via waystone');
+
+// Combat lock: attacking puts the tank in combat; travel must be refused until
+// 5s pass with no attack/hit. (Tank is safe in town, so this is deterministic.)
+a.emit('basic');
+const inCombat = await waitFor(() => aSnap.me && aSnap.me.inCombat === true, 1500);
+if (!inCombat) fail('attacking did not flag the player as in-combat');
+a.emit('map_travel', { waystone: 'forest_entry' }); // in combat -> must be ignored
+await sleep(200);
+if (aSnap.zoneKey !== 'town') fail('fast-travel should be blocked while in combat');
+console.log('  travel correctly blocked while in combat');
+const leftCombat = await waitFor(() => aSnap.me && aSnap.me.inCombat === false, 7000);
+if (!leftCombat) fail('player did not leave combat after 5s');
+console.log('  left combat after cooldown');
+
+// Walk back to the forest so the rest of the test runs there.
+const back = setInterval(() => steer(aSnap, a, 'Tank', FX, FY), 80);
+await waitFor(() => aSnap.zoneKey === 'forest', 9000);
+clearInterval(back); a.emit('input', { mx: 0, my: 0, facing: 0 });
 
 // Mage nukes the nearest mob with Fireball (auto-targets) until XP is gained.
 const fight = setInterval(() => { b.emit('cast', { slot: 1 }); b.emit('basic'); }, 120);
