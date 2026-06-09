@@ -2,6 +2,8 @@ import { START_ZONE, ZONES, zonePortals, zoneWaystones, findWaystone } from '../
 import Zone from './sim/Zone.js';
 import ServerPlayer from './sim/ServerPlayer.js';
 import { resolveSkill } from './sim/skills.js';
+import { EQUIP_SLOTS, INV_CAP } from '../src/items.js';
+import { buyCost, rollShopItem, upgradeCost, upgradeItem } from '../src/shop.js';
 
 const TICK_HZ = 30;
 const TICK_DT = 1 / TICK_HZ;
@@ -101,6 +103,32 @@ export default class Room {
   discardItem(id, itemId) { const p = this.players.get(id); if (p) p.discard(itemId); }
   spendSkill(id, nodeId) { const p = this.players.get(id); if (p) p.spendSkill(nodeId); }
   respecSkill(id) { const p = this.players.get(id); if (p) p.respecSkills(); }
+
+  // --- town shop (server-authoritative: validates gold + town-only) ---
+  buyItem(id, slot, tierKey) {
+    const p = this.players.get(id);
+    if (!p || p.zoneKey !== 'town') return;          // shop is in town only
+    const cost = buyCost(slot, tierKey);
+    if (cost == null || p.gold < cost) return;
+    if (p.inventory.length >= INV_CAP) { return; }   // no room
+    const item = rollShopItem(p.classKey, slot, tierKey);
+    if (!item) return;
+    p.spendGold(cost);
+    p.addItem(item);
+  }
+
+  upgradeGear(id, slot) {
+    const p = this.players.get(id);
+    if (!p || p.zoneKey !== 'town') return;
+    if (!EQUIP_SLOTS.includes(slot)) return;
+    const item = p.gear[slot];
+    if (!item) return;
+    const cost = upgradeCost(item);
+    if (cost == null || p.gold < cost) return;
+    p.spendGold(cost);
+    p.gear[slot] = upgradeItem(item);
+    p.recomputeStats();
+  }
 
   // Fast-travel to a previously discovered waystone (validated server-side).
   // Blocked inside dungeons/raids and while in combat; heals to full on arrival.

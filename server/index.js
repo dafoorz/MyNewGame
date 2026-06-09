@@ -92,6 +92,16 @@ io.on('connection', (socket) => {
     if (room) room.respecSkill(socket.id);
   });
 
+  socket.on('shop_buy', ({ slot, tier } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room && typeof slot === 'string' && typeof tier === 'string') room.buyItem(socket.id, slot, tier);
+  });
+
+  socket.on('shop_upgrade', ({ slot } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room && typeof slot === 'string') room.upgradeGear(socket.id, slot);
+  });
+
   const leave = () => {
     const room = rooms.get(currentCode);
     if (!room) return;

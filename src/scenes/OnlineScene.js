@@ -10,6 +10,7 @@ import InventoryPanel from '../ui/InventoryPanel.js';
 import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
 import MapPanel from '../ui/MapPanel.js';
+import ShopPanel from '../ui/ShopPanel.js';
 import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
 import { applyIso, project, unproject, dirToWorld, projectDir, bodyDepth, zoneBounds } from '../iso.js';
 import { drawHumanoid, drawCreature, drawBoss, drawMinion } from '../sprites.js';
@@ -91,6 +92,11 @@ export default class OnlineScene extends Phaser.Scene {
         if (this.net) this.net.sendMapTravel(id);
       },
     });
+    this.shopPanel = new ShopPanel(this, {
+      getModel: () => ({ classKey: this.classKey, gold: (this.me && this.me.gold) || 0, gear: (this.me && this.me.gear) || {} }),
+      onBuy: (slot, tier) => { if (this.net) this.net.sendBuy(slot, tier); },
+      onUpgrade: (slot) => { if (this.net) this.net.sendUpgrade(slot); },
+    });
     // Server announces shrine discovery — show a banner.
     if (this.net) this.net.on('waystone', (d) => { if (d && d.name) this.showBanner('Waystone discovered: ' + d.name); });
 
@@ -101,6 +107,7 @@ export default class OnlineScene extends Phaser.Scene {
   // ----------------------------------------------------------------- zones ---
   onZoneChange(key) {
     this.curZone = key;
+    if (key !== 'town' && this.shopPanel && this.shopPanel.open) this.shopPanel.close();
     const z = ZONES[key];
     this.bounds = { w: z.size.w, h: z.size.h };
     const zb = zoneBounds(z.size.w, z.size.h);
@@ -123,6 +130,13 @@ export default class OnlineScene extends Phaser.Scene {
       pg.lineStyle(3, col, 0.9); pg.strokeCircle(p.x, p.y, 40);
       const lp = project(p.x, p.y);
       this.portalLabels.push(this.add.text(lp.x, lp.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(40));
+    }
+    // Town market stall.
+    if (z.shop) {
+      pg.fillStyle(0x6a4a1a, 0.5); pg.fillCircle(z.shop.x, z.shop.y, 34);
+      pg.lineStyle(3, 0xffe066, 0.9); pg.strokeCircle(z.shop.x, z.shop.y, 34);
+      const ssp = project(z.shop.x, z.shop.y);
+      this.portalLabels.push(this.add.text(ssp.x, ssp.y - 50, '🛒 Market (B)', { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#ffe066', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(40));
     }
 
     this.waystones = zoneWaystones(key, seed);
@@ -163,7 +177,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M,B');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -193,6 +207,7 @@ export default class OnlineScene extends Phaser.Scene {
         case 'block': this.castSlot(6); break;
         case 'map': this.mapPanel.toggle(this.curZone); break;
         case 'tree': this.treePanel.toggle(); break;
+        case 'shop': this.openShop(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -212,7 +227,14 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
     if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
     if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
+    if (this.shopBtn && Math.hypot(p.x - this.shopBtn.x, p.y - this.shopBtn.y) <= this.shopBtn.r) return true;
+    if (this.shopPanel && this.shopPanel.contains(p.x, p.y)) return true;
     return false;
+  }
+
+  openShop() {
+    if (this.curZone !== 'town') { this.showBanner('The shop is in town'); return; }
+    this.shopPanel.toggle();
   }
 
   startJoystick(p) { this.joy.active = true; this.joy.id = p.id; this.joy.baseX = p.x; this.joy.baseY = p.y; this.move.x = 0; this.move.y = 0; this.joyBase.setPosition(p.x, p.y).setVisible(true); this.joyThumb.setPosition(p.x, p.y).setVisible(true); }
@@ -233,7 +255,7 @@ export default class OnlineScene extends Phaser.Scene {
     this._saveAcc = (this._saveAcc || 0) + dt;
     if (this._saveAcc >= 2 && this.me && this.me.stats) {
       this._saveAcc = 0;
-      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, skillTree: this.me.skillTree, waypoints: this.me.waypoints });
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, gold: this.me.gold, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, skillTree: this.me.skillTree, waypoints: this.me.waypoints });
     }
     // Recompute effective skills (tree upgrades/unlocks) only when the allocation
     // changes; refresh the open panels only on change (rebuilding every frame
@@ -250,6 +272,10 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.inventory && this.inventory.open && this.me) {
       const sig = JSON.stringify([this.me.inventory, this.me.gear, this.me.baseStats, this.me.statPoints]);
       if (sig !== this._invSig) { this._invSig = sig; this.inventory.refresh(); }
+    }
+    if (this.shopPanel && this.shopPanel.open && this.me) {
+      const sig = JSON.stringify([this.me.gold, this.me.gear]);
+      if (sig !== this._shopSig) { this._shopSig = sig; this.shopPanel.refresh(); }
     }
 
     const meEnt = snap.players.find((p) => p.id === this.net.youId);
@@ -447,6 +473,7 @@ export default class OnlineScene extends Phaser.Scene {
       if (f.t === 'dmg') this.spawnText(f.x, f.y - 4, f.amount, f.enemy ? '#ff6b6b' : (f.crit ? '#ffe066' : '#ffffff'), f.crit);
       else if (f.t === 'heal') this.spawnText(f.x, f.y, '+' + f.amount, '#7CFC9A');
       else if (f.t === 'xp') this.spawnText(f.x, f.y, '+' + f.amount + ' XP', '#9be8ff');
+      else if (f.t === 'gold') this.spawnText(f.x, f.y, '+' + f.amount + 'g', '#ffe066');
       else if (f.t === 'level') this.spawnText(f.x, f.y, 'LEVEL UP! Lv' + f.level, '#ffe066', true);
       else if (f.t === 'loot') this.spawnText(f.x, f.y, '✦ ' + f.name, rarityColor(f.rarity));
       else if (f.t === 'text') this.spawnText(f.x, f.y, f.msg, f.color, f.big);
@@ -519,6 +546,11 @@ export default class OnlineScene extends Phaser.Scene {
     this.treeBadge = this.add.text(trX, trY, 'K', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffd24a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     trBg.on('pointerdown', () => this.treePanel.toggle()); this.treeBtn = { x: trX, y: trY, r: 22 };
 
+    const shX = CONFIG.width - 44, shY = 330;
+    const shBg = this.add.circle(shX, shY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffe066, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(shX, shY, 'B', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffe066' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    shBg.on('pointerdown', () => this.openShop()); this.shopBtn = { x: shX, y: shY, r: 22 };
+
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
     const btn = this.add.circle(ax, ay, 46, this.classDef.color, 0.9).setStrokeStyle(3, 0xffffff, 0.85).setDepth(70).setScrollFactor(0).setInteractive();
@@ -561,7 +593,7 @@ export default class OnlineScene extends Phaser.Scene {
       const meEnt = snap.players.find((p) => p.id === this.net.youId) || { hp: 0, maxHp: 1 };
       const s = me.stats;
       const sp = me.skillPoints || 0;
-      this.statsText.setText([`${this.classDef.name}  Lv ${me.level}`, `HP ${Math.ceil(meEnt.hp)}/${meEnt.maxHp}`, `XP ${me.xp}/${me.xpToNext}`, `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`, me.statPoints > 0 ? `>> ${me.statPoints} stat point(s) — press C` : '', sp > 0 ? `>> ${sp} skill point(s) — press K` : ''].filter(Boolean).join('\n'));
+      this.statsText.setText([`${this.classDef.name}  Lv ${me.level}`, `HP ${Math.ceil(meEnt.hp)}/${meEnt.maxHp}`, `XP ${me.xp}/${me.xpToNext}`, `Gold ${(me.gold || 0).toLocaleString()}`, `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`, me.statPoints > 0 ? `>> ${me.statPoints} stat point(s) — press C` : '', sp > 0 ? `>> ${sp} skill point(s) — press K` : ''].filter(Boolean).join('\n'));
       this.xpFill.width = CONFIG.width * Phaser.Math.Clamp(me.xp / me.xpToNext, 0, 1);
       if (this.treeBadge) this.treeBadge.setColor(sp > 0 ? '#7CFC9A' : '#ffd24a');
       for (const sb of this.skillBoxes) sb.overlay.height = sb.boxW * Phaser.Math.Clamp((me.cd[sb.slot] || 0) / sb.def.cd, 0, 1);
