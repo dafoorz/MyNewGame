@@ -26,7 +26,7 @@ io.on('connection', (socket) => {
     currentCode = room.code;
     socket.join(room.code);
     const you = room.addPlayer(socket.id, name, classKey, progress);
-    socket.emit('party_joined', { code: room.code, youId: socket.id, zoneName: room.zoneName, roster: room.roster() });
+    socket.emit('party_joined', { code: room.code, youId: socket.id, zoneName: room.zoneName, roster: room.roster(), seed: room.seed });
     io.to(room.code).emit('roster', room.roster());
     return you;
   };
@@ -78,9 +78,9 @@ io.on('connection', (socket) => {
   });
 
 
-  socket.on('map_travel', ({ zone } = {}) => {
+  socket.on('map_travel', ({ waystone } = {}) => {
     const room = rooms.get(currentCode);
-    if (room && typeof zone === 'string') room.mapTravel(socket.id, zone);
+    if (room && typeof waystone === 'string') room.mapTravel(socket.id, waystone);
   });
 
 

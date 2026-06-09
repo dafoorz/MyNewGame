@@ -3,7 +3,18 @@
 // Browser-only — never imported by the headless server.
 
 const KEY = 'mng_progress_v1';
+const SEED_KEY = 'mng_world_seed_v1';
 const ATTRS = ['STR', 'DEX', 'INT', 'VIT', 'AGI'];
+
+// One stable world seed per device, so the hidden dungeon portals stay put
+// across sessions. Generated on first run. Browser-only.
+export function loadWorldSeed() {
+  try {
+    let s = parseInt(localStorage.getItem(SEED_KEY) || '', 10);
+    if (!Number.isFinite(s)) { s = (Math.random() * 0x7fffffff) | 0; localStorage.setItem(SEED_KEY, String(s)); }
+    return s >>> 0;
+  } catch { return 1; }
+}
 
 function readAll() {
   try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
@@ -13,7 +24,7 @@ function writeAll(obj) {
 }
 
 // Returns saved progress for a class, or null if none. Shape:
-// { level, xp, statPoints, stats: { STR, DEX, INT, VIT, AGI }, inventory, gear }
+// { level, xp, statPoints, stats: {...}, inventory, gear, waypoints: [ids] }
 export function loadProgress(classKey) {
   const all = readAll();
   return all[classKey] || null;
@@ -29,6 +40,7 @@ export function saveProgress(classKey, data) {
     stats: ATTRS.reduce((o, k) => { o[k] = (data.stats && data.stats[k]) | 0; return o; }, {}),
     inventory: Array.isArray(data.inventory) ? data.inventory : [],
     gear: data.gear || null,
+    waypoints: Array.isArray(data.waypoints) ? data.waypoints.filter((w) => typeof w === 'string') : [],
   };
   writeAll(all);
 }

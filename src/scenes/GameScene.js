@@ -7,9 +7,9 @@ import Ally from '../entities/Ally.js';
 import Boss from '../entities/Boss.js';
 import Mob from '../entities/Mob.js';
 import Minion from '../entities/Minion.js';
-import { ZONES, START_ZONE } from '../world/zones.js';
+import { ZONES, START_ZONE, zonePortals, zoneWaystones, findWaystone } from '../world/zones.js';
 import { CLASSES, DEFAULT_CLASS } from '../classes/classes.js';
-import { loadProgress, saveProgress, clearProgress } from '../progress.js';
+import { loadProgress, saveProgress, clearProgress, loadWorldSeed } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
 import MapPanel from '../ui/MapPanel.js';
@@ -42,6 +42,9 @@ export default class GameScene extends Phaser.Scene {
     this.skills = this.classDef.skills;
     this.basic = this.classDef.basic;
 
+    this.seed = loadWorldSeed();          // fixes the hidden dungeon portal layout
+    this.discovered = new Set(['town']);  // discovered waystones (fast-travel)
+
     this.progression = new Progression();
     // Loot & equipment: base/leveled attributes live in baseAttrs; the player's
     // derived Stats are rebuilt from baseAttrs + equipped gear (recomputeStats).
@@ -67,6 +70,7 @@ export default class GameScene extends Phaser.Scene {
         const it = sanitizeItem(saved.gear[slot]);
         if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
       }
+      if (Array.isArray(saved.waypoints)) for (const w of saved.waypoints) this.discovered.add(w);
       this.recomputeStats();
       this.player.hp = this.player.maxHp;
     }
@@ -85,6 +89,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.zoneGfx = this.add.graphics().setDepth(-1);
     this.portalGfx = this.add.graphics().setDepth(1);
+    this.waystoneGfx = this.add.graphics().setDepth(1);
     this.projGfx = this.add.graphics().setDepth(7);
 
     this.setupInput();
@@ -106,7 +111,9 @@ export default class GameScene extends Phaser.Scene {
     });
     this.mapPanel = new MapPanel(this, {
       getZoneKey: () => this.zoneKey,
-      onTravel: (key) => { this.loadZone(key, null); },
+      getDiscovered: () => this.discovered,
+      getSeed: () => this.seed,
+      onTravel: (id) => this.travelToWaystone(id),
     });
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
@@ -118,13 +125,15 @@ export default class GameScene extends Phaser.Scene {
 
   // =============================================================== ZONES =====
 
-  loadZone(key, fromKey) {
+  loadZone(key, fromKey, at = null) {
     this.respawnToken++;
     this.zoneKey = key;
     this.zone = ZONES[key];
     const z = this.zone;
     const bounds = { x: 0, y: 0, w: z.size.w, h: z.size.h };
     this.bounds = bounds;
+    this.portals = zonePortals(key, this.seed);   // resolved (random portals fixed)
+    this.waystones = zoneWaystones(key, this.seed);
 
     this.mobs.forEach((m) => m.destroy());
     this.mobs = [];
@@ -142,19 +151,25 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, z.size.w, z.size.h);
     this.player.bounds = bounds;
 
-    const entry = z.portals.find((p) => p.to === fromKey);
-    if (entry) {
-      const dx = entry.x < z.size.w / 2 ? 70 : entry.x > z.size.w - 80 ? -70 : 0;
-      const dy = entry.y < z.size.h / 2 ? 70 : entry.y > z.size.h - 80 ? -70 : 0;
-      this.player.x = entry.x + dx;
-      this.player.y = entry.y + dy;
+    if (at) {
+      this.player.x = at.x;
+      this.player.y = at.y;
     } else {
-      this.player.x = z.size.w / 2;
-      this.player.y = z.size.h / 2;
+      const entry = this.portals.find((p) => p.to === fromKey);
+      if (entry) {
+        const dx = entry.x < z.size.w / 2 ? 70 : entry.x > z.size.w - 80 ? -70 : 0;
+        const dy = entry.y < z.size.h / 2 ? 70 : entry.y > z.size.h - 80 ? -70 : 0;
+        this.player.x = entry.x + dx;
+        this.player.y = entry.y + dy;
+      } else {
+        this.player.x = z.size.w / 2;
+        this.player.y = z.size.h / 2;
+      }
     }
 
     this.drawZoneBackground(z);
-    this.drawPortals(z);
+    this.drawPortals();
+    this.drawWaystones();
 
     if (z.raid) {
       this.raidState = 'wave1';
@@ -183,19 +198,69 @@ export default class GameScene extends Phaser.Scene {
     for (let y = 80; y < z.size.h; y += 80) g.lineBetween(0, y, z.size.w, y);
   }
 
-  drawPortals(z) {
+  drawPortals() {
     const g = this.portalGfx;
     g.clear();
-    for (const p of z.portals) {
-      g.fillStyle(0x6cd0ff, 0.25);
+    for (const p of this.portals) {
+      const isDungeon = ZONES[p.to] && (ZONES[p.to].dungeon || ZONES[p.to].raid);
+      const col = ZONES[p.to] && ZONES[p.to].raid ? 0xc06cff : (isDungeon ? 0xff9a5a : 0x6cd0ff);
+      g.fillStyle(col, 0.25);
       g.fillCircle(p.x, p.y, 40);
-      g.lineStyle(3, 0x6cd0ff, 0.9);
+      g.lineStyle(3, col, 0.9);
       g.strokeCircle(p.x, p.y, 40);
       const label = this.add.text(p.x, p.y - 56, p.label, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '14px', fontStyle: 'bold',
         color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4,
       }).setOrigin(0.5).setDepth(2);
       this.portalSprites.push(label);
+    }
+  }
+
+  // Fast-travel shrines. Cyan obelisk once discovered; dim & locked until then.
+  drawWaystones() {
+    const g = this.waystoneGfx;
+    g.clear();
+    for (const w of this.waystones) {
+      const known = this.discovered.has(w.id);
+      const col = known ? 0x4ad0ff : 0x55607a;
+      g.fillStyle(col, known ? 0.22 : 0.12);
+      g.fillCircle(w.x, w.y, 26);
+      g.lineStyle(3, col, known ? 0.95 : 0.6);
+      g.strokeCircle(w.x, w.y, 26);
+      // little obelisk
+      g.fillStyle(col, known ? 0.9 : 0.5);
+      g.fillRect(w.x - 5, w.y - 18, 10, 30);
+      const label = this.add.text(w.x, w.y - 34, (known ? '◈ ' : '🔒 ') + w.name, {
+        fontFamily: 'Segoe UI, sans-serif', fontSize: '11px', fontStyle: 'bold',
+        color: known ? '#bff0ff' : '#8b93ad', stroke: '#06121c', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(2);
+      this.portalSprites.push(label);
+    }
+  }
+
+  // Discover any waystone the player is standing on (solo).
+  checkWaystones() {
+    if (!this.waystones) return;
+    for (const w of this.waystones) {
+      if (this.discovered.has(w.id)) continue;
+      if (Math.hypot(w.x - this.player.x, w.y - this.player.y) <= 46) {
+        this.discovered.add(w.id);
+        this.spawnText(w.x, w.y - 50, 'Waystone discovered: ' + w.name, '#4ad0ff', true);
+        this.drawWaystones();
+        this.persist();
+      }
+    }
+  }
+
+  travelToWaystone(id) {
+    const w = findWaystone(id, this.seed);
+    if (!w || !this.discovered.has(id)) return;
+    if (w.zoneKey === this.zoneKey) {
+      this.player.x = w.x; this.player.y = w.y;
+      this.portalLock = true;
+      this.centerCamera(true);
+    } else {
+      this.loadZone(w.zoneKey, null, { x: w.x, y: w.y });
     }
   }
 
@@ -211,7 +276,7 @@ export default class GameScene extends Phaser.Scene {
     for (let tries = 0; tries < 20; tries++) {
       const x = Phaser.Math.Between(120, z.size.w - 120);
       const y = Phaser.Math.Between(120, z.size.h - 120);
-      const nearPortal = z.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 220);
+      const nearPortal = this.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 220);
       const nearPlayer = Math.hypot(this.player.x - x, this.player.y - y) < 260;
       if (!nearPortal && !nearPlayer) return { x, y };
     }
@@ -325,12 +390,10 @@ export default class GameScene extends Phaser.Scene {
       addFx: (f) => { if (f.t === 'text') this.spawnText(f.x, f.y, f.msg, f.color, f.big); },
     };
   }
-  }
 
   checkPortals() {
-    const z = this.zone;
     let onAny = false;
-    for (const p of z.portals) {
+    for (const p of this.portals) {
       if (Math.hypot(p.x - this.player.x, p.y - this.player.y) <= 42) {
         onAny = true;
         if (!this.portalLock) { this.loadZone(p.to, this.zoneKey); return; }
@@ -867,6 +930,7 @@ export default class GameScene extends Phaser.Scene {
     if (!this.player.alive) this.respawnInTown();
 
     this.checkPortals();
+    this.checkWaystones();
     this.centerCamera(false);
     this.updateHud();
   }
@@ -1112,6 +1176,7 @@ export default class GameScene extends Phaser.Scene {
       stats: { ...this.baseAttrs },
       inventory: this.inventory,
       gear: this.gear,
+      waypoints: [...this.discovered],
     });
   }
 

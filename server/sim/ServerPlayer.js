@@ -45,6 +45,9 @@ export default class ServerPlayer {
     this.isBlocking = false;
     this.blockTimer = 0;
 
+    this.waypoints = new Set(['town']); // discovered fast-travel shrines
+    this.portalLockId = null;           // suppress re-triggering the waystone we arrived on
+
     this.input = { mx: 0, my: 0, facing: this.facing };
   }
 
@@ -90,6 +93,7 @@ export default class ServerPlayer {
       const it = sanitizeItem(p.gear[slot]);
       if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
     }
+    if (Array.isArray(p.waypoints)) for (const w of p.waypoints) if (typeof w === 'string') this.waypoints.add(w);
     this.recomputeStats();
     this.hp = this.maxHp;
   }
@@ -204,6 +208,7 @@ export default class ServerPlayer {
       baseStats: { ...this.baseAttrs },
       inventory: this.inventory,
       gear: this.gear,
+      waypoints: [...this.waypoints],
     };
   }
 }

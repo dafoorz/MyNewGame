@@ -1,4 +1,4 @@
-import { ZONES } from '../../src/world/zones.js';
+import { ZONES, zonePortals } from '../../src/world/zones.js';
 import Mob from './Mob.js';
 import Minion from './Minion.js';
 import Boss from './Boss.js';
@@ -10,9 +10,11 @@ import { rollDrop, rollItem } from '../../src/items.js';
 // the zone each tick and collects the resulting snapshot.
 
 export default class Zone {
-  constructor(key) {
+  constructor(key, seed = 0) {
     this.key = key;
     this.def = ZONES[key];
+    this.seed = seed;
+    this.portals = zonePortals(key, seed); // resolved (random portals get fixed spots)
     this.bounds = { w: this.def.size.w, h: this.def.size.h };
     this.players = [];        // set by Room each tick
     this.mobs = [];
@@ -53,7 +55,7 @@ export default class Zone {
     for (let i = 0; i < 20; i++) {
       const x = 120 + Math.random() * (z.size.w - 240);
       const y = 120 + Math.random() * (z.size.h - 240);
-      if (!z.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 220)) return { x, y };
+      if (!this.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 220)) return { x, y };
     }
     return { x: z.size.w / 2, y: 120 };
   }

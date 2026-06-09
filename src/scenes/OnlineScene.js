@@ -1,7 +1,7 @@
 import { CONFIG } from '../config.js';
 import { CLASSES } from '../classes/classes.js';
 import { Stats } from '../stats.js';
-import { ZONES } from '../world/zones.js';
+import { ZONES, zonePortals, zoneWaystones } from '../world/zones.js';
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
 import { saveProgress } from '../progress.js';
@@ -36,10 +36,13 @@ export default class OnlineScene extends Phaser.Scene {
 
     this.zoneGfx = this.add.graphics().setDepth(-1);
     this.portalGfx = this.add.graphics().setDepth(1);
+    this.waystoneGfx = this.add.graphics().setDepth(1);
     this.projGfx = this.add.graphics().setDepth(7);
     this.bossGfx = this.add.graphics().setDepth(9);
     this.telegraphGfx = this.add.graphics().setDepth(5);
     this.portalLabels = [];
+    this.waystoneLabels = [];
+    this._wpCount = -1; // track discovered count to know when to redraw shrines
 
     this.players = new Map();  // id -> render bundle
     this.mobsR = new Map();    // id -> render bundle
@@ -64,8 +67,12 @@ export default class OnlineScene extends Phaser.Scene {
     });
     this.mapPanel = new MapPanel(this, {
       getZoneKey: () => this.curZone || 'town',
-      onTravel: (key) => { if (this.net) this.net.sendMapTravel(key); },
+      getDiscovered: () => new Set((this.me && this.me.waypoints) || ['town']),
+      getSeed: () => (this.net ? this.net.seed : 0),
+      onTravel: (id) => { if (this.net) this.net.sendMapTravel(id); },
     });
+    // Server announces shrine discovery — show a banner.
+    if (this.net) this.net.on('waystone', (d) => { if (d && d.name) this.showBanner('Waystone discovered: ' + d.name); });
 
     this.inputAcc = 0;
     this.move = { x: 0, y: 0 };
@@ -85,19 +92,47 @@ export default class OnlineScene extends Phaser.Scene {
     for (let x = 80; x < z.size.w; x += 80) g.lineBetween(x, 0, x, z.size.h);
     for (let y = 80; y < z.size.h; y += 80) g.lineBetween(0, y, z.size.w, y);
 
+    const seed = this.net ? this.net.seed : 0;
     const pg = this.portalGfx; pg.clear();
     this.portalLabels.forEach((l) => l.destroy()); this.portalLabels = [];
-    for (const p of z.portals) {
-      pg.fillStyle(0x6cd0ff, 0.25); pg.fillCircle(p.x, p.y, 40);
-      pg.lineStyle(3, 0x6cd0ff, 0.9); pg.strokeCircle(p.x, p.y, 40);
+    for (const p of zonePortals(key, seed)) {
+      const isDungeon = ZONES[p.to] && (ZONES[p.to].dungeon || ZONES[p.to].raid);
+      const col = ZONES[p.to] && ZONES[p.to].raid ? 0xc06cff : (isDungeon ? 0xff9a5a : 0x6cd0ff);
+      pg.fillStyle(col, 0.25); pg.fillCircle(p.x, p.y, 40);
+      pg.lineStyle(3, col, 0.9); pg.strokeCircle(p.x, p.y, 40);
       this.portalLabels.push(this.add.text(p.x, p.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(2));
     }
 
-    // Banner.
-    const t = this.add.text(CONFIG.width / 2, CONFIG.height / 2 - 120, z.name, { fontFamily: 'Segoe UI', fontSize: '34px', fontStyle: 'bold', color: '#fff', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(110).setScrollFactor(0).setAlpha(0);
-    this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 1100, onComplete: () => t.destroy() });
+    this.waystones = zoneWaystones(key, seed);
+    this._wpCount = -1; // force shrine redraw for the new zone
+    this.drawWaystones();
 
+    this.showBanner(z.name);
     this.localPos = null; // re-anchor to server pos after teleport
+  }
+
+  // Shrines: cyan obelisk once discovered (server-tracked), dim & locked until then.
+  drawWaystones() {
+    const g = this.waystoneGfx; g.clear();
+    this.waystoneLabels.forEach((l) => l.destroy()); this.waystoneLabels = [];
+    const known = new Set((this.me && this.me.waypoints) || ['town']);
+    for (const w of (this.waystones || [])) {
+      const got = known.has(w.id);
+      const col = got ? 0x4ad0ff : 0x55607a;
+      g.fillStyle(col, got ? 0.22 : 0.12); g.fillCircle(w.x, w.y, 26);
+      g.lineStyle(3, col, got ? 0.95 : 0.6); g.strokeCircle(w.x, w.y, 26);
+      g.fillStyle(col, got ? 0.9 : 0.5); g.fillRect(w.x - 5, w.y - 18, 10, 30);
+      this.waystoneLabels.push(this.add.text(w.x, w.y - 34, (got ? '◈ ' : '🔒 ') + w.name, {
+        fontFamily: 'Segoe UI', fontSize: '11px', fontStyle: 'bold',
+        color: got ? '#bff0ff' : '#8b93ad', stroke: '#06121c', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(2));
+    }
+    this._wpCount = known.size;
+  }
+
+  showBanner(text) {
+    const t = this.add.text(CONFIG.width / 2, CONFIG.height / 2 - 120, text, { fontFamily: 'Segoe UI', fontSize: '30px', fontStyle: 'bold', color: '#fff', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(110).setScrollFactor(0).setAlpha(0);
+    this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 1100, onComplete: () => t.destroy() });
   }
 
   // ----------------------------------------------------------------- input ---
@@ -165,12 +200,14 @@ export default class OnlineScene extends Phaser.Scene {
     if (!snap) return;
     if (snap.zoneKey !== this.curZone) this.onZoneChange(snap.zoneKey);
     this.me = snap.me;
+    // Re-light shrines when the server reports a newly discovered one.
+    if (this.me && this.me.waypoints && this.me.waypoints.length !== this._wpCount) this.drawWaystones();
 
     // Persist this class's progress on this device (throttled).
     this._saveAcc = (this._saveAcc || 0) + dt;
     if (this._saveAcc >= 2 && this.me && this.me.stats) {
       this._saveAcc = 0;
-      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear });
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, waypoints: this.me.waypoints });
     }
     if (this.inventory && this.inventory.open) this.inventory.refresh();
 

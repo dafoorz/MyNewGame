@@ -1,4 +1,4 @@
-import { START_ZONE, ZONES } from '../src/world/zones.js';
+import { START_ZONE, ZONES, zonePortals, zoneWaystones, findWaystone } from '../src/world/zones.js';
 import Zone from './sim/Zone.js';
 import ServerPlayer from './sim/ServerPlayer.js';
 import { resolveSkill } from './sim/skills.js';
@@ -18,6 +18,7 @@ export default class Room {
     this.players = new Map();   // socketId -> ServerPlayer
     this.zones = new Map();     // zoneKey -> Zone (created on demand)
     this.zoneName = 'Riverwood (Town)';
+    this.seed = (Math.random() * 0x7fffffff) | 0; // fixes hidden portal layout
     this.interval = null;
   }
 
@@ -25,7 +26,7 @@ export default class Room {
 
   getZone(key) {
     let z = this.zones.get(key);
-    if (!z) { z = new Zone(key); this.zones.set(key, z); }
+    if (!z) { z = new Zone(key, this.seed); this.zones.set(key, z); }
     return z;
   }
 
@@ -51,30 +52,45 @@ export default class Room {
 
   playersInZone(key) { return [...this.players.values()].filter((p) => p.zoneKey === key); }
 
-  movePlayerToZone(player, toKey, fromKey) {
+  movePlayerToZone(player, toKey, fromKey, at = null) {
     const zone = this.getZone(toKey);
     player.zoneKey = toKey;
     player.bounds = zone.bounds;
     const z = zone.def;
-    const entry = z.portals.find((p) => p.to === fromKey);
-    if (entry) {
-      const dx = entry.x < z.size.w / 2 ? 70 : entry.x > z.size.w - 80 ? -70 : 0;
-      const dy = entry.y < z.size.h / 2 ? 70 : entry.y > z.size.h - 80 ? -70 : 0;
-      player.x = entry.x + dx; player.y = entry.y + dy;
-    } else { player.x = z.size.w / 2; player.y = z.size.h / 2; }
+    if (at) {
+      player.x = at.x; player.y = at.y;
+    } else {
+      const entry = zonePortals(toKey, this.seed).find((p) => p.to === fromKey);
+      if (entry) {
+        const dx = entry.x < z.size.w / 2 ? 70 : entry.x > z.size.w - 80 ? -70 : 0;
+        const dy = entry.y < z.size.h / 2 ? 70 : entry.y > z.size.h - 80 ? -70 : 0;
+        player.x = entry.x + dx; player.y = entry.y + dy;
+      } else { player.x = z.size.w / 2; player.y = z.size.h / 2; }
+    }
     player.portalLock = true;
   }
 
   checkPortal(player) {
-    const z = this.getZone(player.zoneKey).def;
     let on = false;
-    for (const p of z.portals) {
+    for (const p of zonePortals(player.zoneKey, this.seed)) {
       if (Math.hypot(p.x - player.x, p.y - player.y) <= 42) {
         on = true;
         if (!player.portalLock) { this.movePlayerToZone(player, p.to, player.zoneKey); return; }
       }
     }
     if (!on) player.portalLock = false;
+  }
+
+  // Discover fast-travel shrines on contact (server-authoritative). Notifies the
+  // owning client so it can show a banner; the new id rides along in privateState.
+  checkWaystones(player) {
+    for (const w of zoneWaystones(player.zoneKey, this.seed)) {
+      if (player.waypoints.has(w.id)) continue;
+      if (Math.hypot(w.x - player.x, w.y - player.y) <= 46) {
+        player.waypoints.add(w.id);
+        this.io.to(player.id).emit('waystone', { id: w.id, name: w.name });
+      }
+    }
   }
 
   // --- client intents ---
@@ -84,12 +100,16 @@ export default class Room {
   unequipItem(id, slot) { const p = this.players.get(id); if (p) p.unequip(slot); }
   discardItem(id, itemId) { const p = this.players.get(id); if (p) p.discard(itemId); }
 
-  mapTravel(id, zoneKey) {
+  // Fast-travel to a previously discovered waystone (validated server-side).
+  mapTravel(id, waystoneId) {
     const p = this.players.get(id);
-    if (!p) return;
-    const zone = ZONES[zoneKey];
-    if (!zone || zone.dungeon || zone.raid) return;
-    this.movePlayerToZone(p, zoneKey, null);
+    if (!p || !p.alive) return;
+    if (!p.waypoints.has(waystoneId)) return;        // must be discovered first
+    const w = findWaystone(waystoneId, this.seed);
+    if (!w) return;
+    const dest = ZONES[w.zoneKey];
+    if (!dest || dest.dungeon || dest.raid) return;  // never land inside a dungeon/raid
+    this.movePlayerToZone(p, w.zoneKey, null, { x: w.x, y: w.y });
   }
 
   doBasic(id) {
@@ -123,7 +143,7 @@ export default class Room {
     for (const p of this.players.values()) {
       p.update(dt);
       if (!p.alive) { p.deadTimer -= dt; if (p.deadTimer <= 0) { p.alive = true; p.hp = p.maxHp; p.damageReduction = 0; this.movePlayerToZone(p, START_ZONE, null); } }
-      else this.checkPortal(p);
+      else { this.checkPortal(p); this.checkWaystones(p); }
     }
 
     // Group players by zone and simulate only active zones.
