@@ -1,21 +1,12 @@
 import BossCore from '../../src/world/BossCore.js';
 
-// Thin authoritative wrapper around the shared BossCore state machine.
-// Zone.js feeds it a bossAdapter() each tick; rendering lives in OnlineScene.
+// Headless authoritative boss. All behavior lives in the shared, Phaser-free
+// BossCore (driven by data in src/world/bosses.js); this subclass exists only as
+// the server's handle. The Zone builds the per-tick adapter and passes it to
+// update(); snapshot() is inherited from BossCore.
 
-export default class Boss {
+export default class Boss extends BossCore {
   constructor(bounds, bossKey) {
-    this.core = new BossCore(bossKey, bounds);
+    super(bossKey, bounds);
   }
-
-  get x() { return this.core.x; }
-  get y() { return this.core.y; }
-  get alive() { return this.core.alive; }
-  get cfg() { return this.core.cfg; }
-
-  takeDamage(amount) { this.core.takeDamage(amount); }
-
-  update(dt, adapter) { this.core.update(dt, adapter); }
-
-  snapshot() { return this.core.snapshot(); }
 }

@@ -150,6 +150,22 @@ await new Promise((res) => d.on('party_joined', res));
 const restored = await waitFor(() => dSnap && dSnap.me && dSnap.me.level === 5, 3000);
 if (!restored) fail('saved progress was not restored on join');
 console.log(`  restored progress: level ${dSnap.me.level}, STR ${dSnap.me.stats.STR}, points ${dSnap.me.statPoints}`);
+
+// Skill tree: server-authoritative spend. A STR node must raise total STR, and
+// an illegal (gated) node must be rejected. A respec must refund it.
+const dStr = dSnap.me.stats.STR;
+const dPts = dSnap.me.skillPoints;
+if (!(dPts > 0)) fail('level-5 player should have skill points');
+d.emit('spend_skill', { nodeId: 'w_str' });
+const spent = await waitFor(() => dSnap.me.stats.STR === dStr + 2 && dSnap.me.skillPoints === dPts - 1, 2000);
+if (!spent) fail('spend_skill did not apply the STR node');
+d.emit('spend_skill', { nodeId: 'w_quake' }); // gated capstone — must be ignored
+await sleep(300);
+if (dSnap.me.skillTree.w_quake) fail('server allowed an illegal gated skill node');
+d.emit('respec_skill', {});
+const respecced = await waitFor(() => dSnap.me.stats.STR === dStr && dSnap.me.skillPoints === dPts, 2000);
+if (!respecced) fail('respec did not refund/revert the skill tree');
+console.log(`  skill tree: spent +STR (${dStr}->${dStr + 2}), rejected gated node, respecced back to ${dStr}`);
 d.disconnect();
 
 // Leave handling: tank disconnects, mage should no longer see them.

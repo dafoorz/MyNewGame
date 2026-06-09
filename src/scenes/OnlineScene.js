@@ -7,8 +7,12 @@ import HealthBar from '../ui/HealthBar.js';
 import { saveProgress } from '../progress.js';
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
+import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
 import MapPanel from '../ui/MapPanel.js';
+import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
+import { applyIso, project, unproject, dirToWorld, projectDir, bodyDepth, zoneBounds } from '../iso.js';
+import { drawHumanoid, drawCreature, drawBoss, drawMinion } from '../sprites.js';
 
 // Networked co-op scene. The server is authoritative across ALL zones — this
 // scene sends input and renders the snapshot of whatever zone the player is in.
@@ -34,12 +38,16 @@ export default class OnlineScene extends Phaser.Scene {
     this.localPos = null;
     this.me = null;
 
-    this.zoneGfx = this.add.graphics().setDepth(-1);
-    this.portalGfx = this.add.graphics().setDepth(1);
-    this.waystoneGfx = this.add.graphics().setDepth(1);
-    this.projGfx = this.add.graphics().setDepth(7);
-    this.bossGfx = this.add.graphics().setDepth(9);
-    this.telegraphGfx = this.add.graphics().setDepth(5);
+    // Iso world layer (see src/iso.js): the FLOOR and ground decals (zone grid,
+    // portals, waystones, boss telegraphs) live here and inherit the iso transform.
+    // Bodies and projectiles are upright billboards in scene space at project(x,y).
+    this.world = applyIso(this.add.container(0, 0));
+    this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
+    this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
+    this.waystoneGfx = this.add.graphics(); this.waystoneGfx.depth = -9e6 + 1; this.world.add(this.waystoneGfx);
+    this.telegraphGfx = this.add.graphics(); this.telegraphGfx.depth = -1000; this.world.add(this.telegraphGfx);
+    this.bossGfx = this.add.graphics().setDepth(20);   // boss billboard (scene space)
+    this.projGfx = this.add.graphics().setDepth(53);   // projectiles (scene space)
     this.portalLabels = [];
     this.waystoneLabels = [];
     this._wpCount = -1; // track discovered count to know when to redraw shrines
@@ -62,8 +70,14 @@ export default class OnlineScene extends Phaser.Scene {
       onUnequip: (slot) => this.net.sendUnequip(slot),
       onDiscard: (itemId) => this.net.sendDiscard(itemId),
     });
+    this.effSkills = this.classDef.skills; // recomputed from me.skillTree each snapshot
+    this.treePanel = new SkillTreePanel(this, {
+      getModel: () => ({ classKey: this.classKey, level: this.me ? this.me.level : 1, alloc: (this.me && this.me.skillTree) || {} }),
+      onSpend: (nodeId) => this.net.sendSpendSkill(nodeId),
+      onRespec: () => this.net.sendRespecSkill(),
+    });
     this.settings = new SettingsPanel(this, {
-      onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('ClassSelectScene'); },
+      onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('LobbyScene'); },
     });
     this.mapPanel = new MapPanel(this, {
       getZoneKey: () => this.curZone || 'town',
@@ -83,7 +97,8 @@ export default class OnlineScene extends Phaser.Scene {
     this.curZone = key;
     const z = ZONES[key];
     this.bounds = { w: z.size.w, h: z.size.h };
-    this.cameras.main.setBounds(0, 0, z.size.w, z.size.h);
+    const zb = zoneBounds(z.size.w, z.size.h);
+    this.cameras.main.setBounds(zb.x, zb.y, zb.w, zb.h);
 
     const g = this.zoneGfx; g.clear();
     g.fillStyle(z.bg, 1); g.fillRect(0, 0, z.size.w, z.size.h);
@@ -100,7 +115,8 @@ export default class OnlineScene extends Phaser.Scene {
       const col = ZONES[p.to] && ZONES[p.to].raid ? 0xc06cff : (isDungeon ? 0xff9a5a : 0x6cd0ff);
       pg.fillStyle(col, 0.25); pg.fillCircle(p.x, p.y, 40);
       pg.lineStyle(3, col, 0.9); pg.strokeCircle(p.x, p.y, 40);
-      this.portalLabels.push(this.add.text(p.x, p.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(2));
+      const lp = project(p.x, p.y);
+      this.portalLabels.push(this.add.text(lp.x, lp.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(40));
     }
 
     this.waystones = zoneWaystones(key, seed);
@@ -122,10 +138,11 @@ export default class OnlineScene extends Phaser.Scene {
       g.fillStyle(col, got ? 0.22 : 0.12); g.fillCircle(w.x, w.y, 26);
       g.lineStyle(3, col, got ? 0.95 : 0.6); g.strokeCircle(w.x, w.y, 26);
       g.fillStyle(col, got ? 0.9 : 0.5); g.fillRect(w.x - 5, w.y - 18, 10, 30);
-      this.waystoneLabels.push(this.add.text(w.x, w.y - 34, (got ? '◈ ' : '🔒 ') + w.name, {
+      const lp = project(w.x, w.y);
+      this.waystoneLabels.push(this.add.text(lp.x, lp.y - 40, (got ? '◈ ' : '🔒 ') + w.name, {
         fontFamily: 'Segoe UI', fontSize: '11px', fontStyle: 'bold',
         color: got ? '#bff0ff' : '#8b93ad', stroke: '#06121c', strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(2));
+      }).setOrigin(0.5).setDepth(40));
     }
     this._wpCount = known.size;
   }
@@ -140,7 +157,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,M');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -169,6 +186,7 @@ export default class OnlineScene extends Phaser.Scene {
         case 'inv': this.inventory.toggle(); break;
         case 'block': this.castSlot(6); break;
         case 'map': this.mapPanel.toggle(this.curZone); break;
+        case 'tree': this.treePanel.toggle(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -177,6 +195,7 @@ export default class OnlineScene extends Phaser.Scene {
   isOverUI(p) {
     if (this.settings && this.settings.open) return true;
     if (this.inventory && this.inventory.contains(p.x, p.y)) return true;
+    if (this.treePanel && this.treePanel.contains(p.x, p.y)) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) for (const sb of this.skillBoxes) if (Math.abs(p.x - sb.x) <= sb.boxW / 2 && Math.abs(p.y - sb.y) <= sb.boxW / 2) return true;
     if (this.attackBtn && Math.hypot(p.x - this.attackBtn.x, p.y - this.attackBtn.y) <= this.attackBtn.r) return true;
@@ -186,6 +205,7 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
     if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
     if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
+    if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
     return false;
   }
 
@@ -207,16 +227,35 @@ export default class OnlineScene extends Phaser.Scene {
     this._saveAcc = (this._saveAcc || 0) + dt;
     if (this._saveAcc >= 2 && this.me && this.me.stats) {
       this._saveAcc = 0;
-      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, waypoints: this.me.waypoints });
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, skillTree: this.me.skillTree, waypoints: this.me.waypoints });
     }
-    if (this.inventory && this.inventory.open) this.inventory.refresh();
+    // Recompute effective skills (tree upgrades/unlocks) only when the allocation
+    // changes; refresh the open panels only on change (rebuilding every frame
+    // would destroy their interactive elements before a click could register).
+    if (this.me) {
+      const tsig = JSON.stringify([this.me.skillTree, this.me.level]);
+      if (tsig !== this._treeSig) {
+        this._treeSig = tsig;
+        this.effSkills = effectiveSkills(this.classDef, buildFromTree(this.classKey, this.me.skillTree || {}));
+        if (this.skillBoxes) for (const sb of this.skillBoxes) { const d = this.effSkills[sb.slot - 1]; sb.def = d; if (sb.nameText) sb.nameText.setText(d.name); }
+        if (this.treePanel && this.treePanel.open) this.treePanel.refresh();
+      }
+    }
+    if (this.inventory && this.inventory.open && this.me) {
+      const sig = JSON.stringify([this.me.inventory, this.me.gear, this.me.baseStats, this.me.statPoints]);
+      if (sig !== this._invSig) { this._invSig = sig; this.inventory.refresh(); }
+    }
 
     const meEnt = snap.players.find((p) => p.id === this.net.youId);
     if (meEnt && !this.localPos) this.localPos = { x: meEnt.x, y: meEnt.y };
 
+    // Screen-space movement intent...
+    let ix = 0, iy = 0;
+    if (this.joy.active) { ix = this.move.x; iy = this.move.y; }
+    else if (!this.settings.open) { const b = this.settings.binds; if (this.held.has(b.left)) ix -= 1; if (this.held.has(b.right)) ix += 1; if (this.held.has(b.up)) iy -= 1; if (this.held.has(b.down)) iy += 1; const len = Math.hypot(ix, iy); if (len > 1) { ix /= len; iy /= len; } }
+    // ...rotated into WORLD space (what the server understands) so it feels iso.
     let mx = 0, my = 0;
-    if (this.joy.active) { mx = this.move.x; my = this.move.y; }
-    else if (!this.settings.open) { const b = this.settings.binds; if (this.held.has(b.left)) mx -= 1; if (this.held.has(b.right)) mx += 1; if (this.held.has(b.up)) my -= 1; if (this.held.has(b.down)) my += 1; const len = Math.hypot(mx, my); if (len > 1) { mx /= len; my /= len; } }
+    if (ix !== 0 || iy !== 0) { const mag = Math.min(1, Math.hypot(ix, iy)); const w = dirToWorld(ix, iy); mx = w.x * mag; my = w.y * mag; }
 
     if (this.localPos && meEnt && meEnt.alive) {
       this.localPos.x = Phaser.Math.Clamp(this.localPos.x + mx * this.moveSpeed * dt, 16, this.bounds.w - 16);
@@ -229,7 +268,7 @@ export default class OnlineScene extends Phaser.Scene {
     const py = this.localPos ? this.localPos.y : (meEnt ? meEnt.y : 0);
     if (this.autoAim) { const e = this.nearestEnemy(snap, px, py); if (e) this.facing = Math.atan2(e.y - py, e.x - px); }
     else if (this.isTouch) { if (this.joy.active && (mx !== 0 || my !== 0)) this.facing = Math.atan2(my, mx); }
-    else { const ptr = this.input.activePointer; this.facing = Math.atan2(ptr.worldY - py, ptr.worldX - px); }
+    else { const ptr = this.input.activePointer; const wp = unproject(ptr.worldX, ptr.worldY); this.facing = Math.atan2(wp.y - py, wp.x - px); }
     if (this.facing == null) this.facing = -Math.PI / 2;
 
     this.inputAcc += dt;
@@ -242,8 +281,9 @@ export default class OnlineScene extends Phaser.Scene {
     this.renderProjectiles(snap.projectiles);
     this.consumeFx(snap.fx);
     this.updateHud(snap);
+    this.world.sort('depth'); // painter's order for the iso world layer
 
-    if (this.localPos) { const cam = this.cameras.main; cam.scrollX += (this.localPos.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (this.localPos.y - cam.height / 2 - cam.scrollY) * 0.15; }
+    if (this.localPos) { const cam = this.cameras.main; const sp = project(this.localPos.x, this.localPos.y); cam.scrollX += (sp.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (sp.y - cam.height / 2 - cam.scrollY) * 0.15; }
   }
 
   nearestEnemy(snap, x, y) {
@@ -262,7 +302,8 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.autoAim && snap) { const e = this.nearestEnemy(snap, px, py); if (e) return { x: e.x, y: e.y }; }
     else if (!this.isTouch) {
       const ptr = this.input.activePointer;
-      let dx = ptr.worldX - px, dy = ptr.worldY - py;
+      const wp = unproject(ptr.worldX, ptr.worldY);
+      let dx = wp.x - px, dy = wp.y - py;
       const d = Math.hypot(dx, dy) || 1;
       if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
       return { x: px + dx, y: py + dy };
@@ -278,26 +319,31 @@ export default class OnlineScene extends Phaser.Scene {
     for (const p of snap.players) {
       seen.add(p.id);
       let e = this.players.get(p.id);
-      if (!e) { e = { color: CLASSES[p.classKey] ? CLASSES[p.classKey].color : 0xffffff, gfx: this.add.graphics().setDepth(10), label: this.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '12px', color: '#fff' }).setOrigin(0.5).setDepth(11), hpBar: new HealthBar(this, 0, 0, 46, 6, { depth: 11 }), rx: p.x, ry: p.y }; this.players.set(p.id, e); }
+      if (!e) { e = { color: CLASSES[p.classKey] ? CLASSES[p.classKey].color : 0xffffff, gfx: this.add.graphics(), label: this.add.text(0, 0, '', { fontFamily: 'Segoe UI', fontSize: '12px', color: '#fff' }).setOrigin(0.5).setDepth(55), hpBar: new HealthBar(this, 0, 0, 46, 6, { depth: 55 }), rx: p.x, ry: p.y }; this.players.set(p.id, e); }
       const isMe = p.id === this.net.youId;
       const tx = isMe && this.localPos ? this.localPos.x : p.x;
       const ty = isMe && this.localPos ? this.localPos.y : p.y;
       e.rx += (tx - e.rx) * (isMe ? 1 : 0.25); e.ry += (ty - e.ry) * (isMe ? 1 : 0.25);
       const facing = isMe ? this.facing : p.facing;
 
-      const g = e.gfx; g.clear();
-      if (!p.alive) { g.fillStyle(0x444a5e, 0.8); g.fillCircle(e.rx, e.ry, 16); e.label.setText(p.name + ' (down)'); }
-      else {
-        g.fillStyle(e.color, 1); g.fillCircle(e.rx, e.ry, 16);
-        if (p.buff) { g.lineStyle(2, 0xffe066, 0.7); g.strokeCircle(e.rx, e.ry, 25); }
-        g.lineStyle(2, isMe ? 0xffffff : 0xbfc8e0, 0.9); g.strokeCircle(e.rx, e.ry, 16);
-        if (p.shield) { g.lineStyle(3, 0x66ccff, 0.9); g.strokeCircle(e.rx, e.ry, 22); }
-        if (p.invuln) { g.lineStyle(3, 0x5dd9ff, 0.9); g.strokeCircle(e.rx, e.ry, 27); }
-        if (p.blocking) { g.lineStyle(4, 0x4ad0ff, 0.95); g.strokeCircle(e.rx, e.ry, 26); }
-        g.lineStyle(4, 0xffffff, 1); g.beginPath(); g.moveTo(e.rx, e.ry); g.lineTo(e.rx + Math.cos(facing) * 28, e.ry + Math.sin(facing) * 28); g.strokePath();
+      const g = e.gfx; g.clear(); g.depth = bodyDepth(e.rx, e.ry);
+      const sp = project(e.rx, e.ry);
+      const r = 16, headTop = sp.y - r * 2.9;
+      if (!p.alive) {
+        g.fillStyle(0x000000, 0.3); g.fillEllipse(sp.x, sp.y, r * 2.3, r * 1.05);
+        g.fillStyle(0x444a5e, 0.85); g.fillCircle(sp.x, sp.y - r * 0.4, r * 0.9);
+        e.label.setText(p.name + ' (down)');
+      } else {
+        const rings = [];
+        if (p.buff) rings.push({ color: 0xffe066, alpha: 0.7, pad: 8 });
+        if (p.shield) rings.push({ color: 0x66ccff, alpha: 0.9, w: 3, pad: 11 });
+        if (p.invuln) rings.push({ color: 0x5dd9ff, alpha: 0.9, w: 3, pad: 14 });
+        if (p.blocking) rings.push({ color: 0x4ad0ff, alpha: 0.95, w: 4, pad: 17 });
+        const fd = projectDir(Math.cos(facing), Math.sin(facing));
+        drawHumanoid(g, sp.x, sp.y, r, e.color, { faceDx: fd.x, faceDy: fd.y, rings });
         e.label.setText(`${isMe ? p.name + ' (you)' : p.name}  Lv${p.level}`);
       }
-      e.label.setPosition(e.rx, e.ry - 42); e.hpBar.setPosition(e.rx, e.ry - 28); e.hpBar.setValue(p.hp / p.maxHp);
+      e.label.setPosition(sp.x, headTop - 8); e.hpBar.setPosition(sp.x, headTop + 8); e.hpBar.setValue(p.hp / p.maxHp);
     }
     for (const [id, e] of this.players) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.players.delete(id); }
   }
@@ -308,13 +354,13 @@ export default class OnlineScene extends Phaser.Scene {
       seen.add(m.id);
       const t = MOB_TYPES[m.typeKey];
       let e = this.mobsR.get(m.id);
-      if (!e) { e = { gfx: this.add.graphics().setDepth(8), label: this.add.text(0, 0, `Lv${m.level} ${t.name}`, { fontFamily: 'Segoe UI', fontSize: '10px', color: '#d8dcea' }).setOrigin(0.5).setDepth(9), hpBar: new HealthBar(this, 0, 0, 34, 5, { depth: 9 }), rx: m.x, ry: m.y }; this.mobsR.set(m.id, e); }
+      if (!e) { e = { gfx: this.add.graphics(), label: this.add.text(0, 0, `Lv${m.level} ${t.name}`, { fontFamily: 'Segoe UI', fontSize: '10px', color: '#d8dcea' }).setOrigin(0.5).setDepth(55), hpBar: new HealthBar(this, 0, 0, 34, 5, { depth: 55 }), rx: m.x, ry: m.y }; this.mobsR.set(m.id, e); }
       e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
-      const g = e.gfx; g.clear(); g.fillStyle(t.color, 1);
-      if (t.kind === 'ranged') { g.beginPath(); g.moveTo(e.rx, e.ry - t.radius); g.lineTo(e.rx + t.radius, e.ry); g.lineTo(e.rx, e.ry + t.radius); g.lineTo(e.rx - t.radius, e.ry); g.closePath(); g.fillPath(); }
-      else g.fillCircle(e.rx, e.ry, t.radius);
-      g.lineStyle(2, 0x000000, 0.35); g.strokeCircle(e.rx, e.ry, t.radius);
-      e.label.setPosition(e.rx, e.ry - t.radius - 20); e.hpBar.setPosition(e.rx, e.ry - t.radius - 9); e.hpBar.setValue(m.hp / m.maxHp);
+      const g = e.gfx; g.clear(); g.depth = bodyDepth(e.rx, e.ry);
+      const sp = project(e.rx, e.ry);
+      drawCreature(g, sp.x, sp.y, t.radius, t.color, t.kind === 'ranged');
+      const top = sp.y - t.radius * (t.kind === 'ranged' ? 2.6 : 2.1);
+      e.label.setPosition(sp.x, top - 6); e.hpBar.setPosition(sp.x, top + 6); e.hpBar.setValue(m.hp / m.maxHp);
     }
     for (const [id, e] of this.mobsR) if (!seen.has(id)) { e.gfx.destroy(); e.label.destroy(); e.hpBar.destroy(); this.mobsR.delete(id); }
   }
@@ -324,14 +370,14 @@ export default class OnlineScene extends Phaser.Scene {
     for (const m of list || []) {
       seen.add(m.id);
       let e = this.minionsR.get(m.id);
-      if (!e) { e = { gfx: this.add.graphics().setDepth(8), rx: m.x, ry: m.y }; this.minionsR.set(m.id, e); }
+      if (!e) { e = { gfx: this.add.graphics(), rx: m.x, ry: m.y }; this.minionsR.set(m.id, e); }
       e.rx += (m.x - e.rx) * 0.3; e.ry += (m.y - e.ry) * 0.3;
-      const g = e.gfx; g.clear();
-      g.fillStyle(0x9ad17a, 1); g.fillCircle(e.rx, e.ry, 10);
-      g.lineStyle(2, 0x3a5a2a, 1); g.strokeCircle(e.rx, e.ry, 10);
-      const bw = 24;
-      g.fillStyle(0x220000, 1); g.fillRect(e.rx - bw / 2, e.ry - 18, bw, 4);
-      g.fillStyle(0x66ff44, 1); g.fillRect(e.rx - bw / 2, e.ry - 18, bw * (m.hp / m.maxHp), 4);
+      const g = e.gfx; g.clear(); g.depth = bodyDepth(e.rx, e.ry);
+      const sp = project(e.rx, e.ry);
+      drawMinion(g, sp.x, sp.y, 10);
+      const bw = 24, by = sp.y - 24;
+      g.fillStyle(0x220000, 1); g.fillRect(sp.x - bw / 2, by, bw, 4);
+      g.fillStyle(0x66ff44, 1); g.fillRect(sp.x - bw / 2, by, bw * (m.hp / m.maxHp), 4);
     }
     for (const [id, e] of this.minionsR) if (!seen.has(id)) { e.gfx.destroy(); this.minionsR.delete(id); }
   }
@@ -343,13 +389,19 @@ export default class OnlineScene extends Phaser.Scene {
     // Per-player DPS meter (server-authoritative, ranked). Visible to everyone.
     const rows = b.dps || [];
     this.bossDpsText.setVisible(rows.length > 0).setText(rows.map((r) => `${r.name}: ${r.dps.toLocaleString()} dps`).join('\n'));
+    this.bossNameText.setText(b.enraged ? `${b.name}  [ENRAGED]` : b.name);
+    const radius = b.radius || 46;
+    g.depth = bodyDepth(b.x, b.y);
     if (b.alive) {
-      g.fillStyle(CONFIG.colors.boss, 1); g.fillCircle(b.x, b.y, 46); g.lineStyle(3, 0x000000, 0.4); g.strokeCircle(b.x, b.y, 46);
-      g.fillStyle(0xffd24a, 1); g.fillCircle(b.x + Math.cos(b.facing) * 50, b.y + Math.sin(b.facing) * 50, 8);
+      const sp = project(b.x, b.y);
+      const fd = projectDir(Math.cos(b.facing), Math.sin(b.facing));
+      drawBoss(g, sp.x, sp.y, radius, b.color != null ? b.color : CONFIG.colors.boss, { enraged: b.enraged, faceDx: fd.x, faceDy: fd.y });
     }
     if (b.telegraph) this.drawBossTelegraph(tg, b.telegraph);
   }
 
+  // Snapshot-driven telegraph rendering (mirrors the solo drawTelegraph helper).
+  // Yellow = blockable (can be partially blocked), Red = unblockable (must dodge).
   drawBossTelegraph(tg, t) {
     const alpha = 0.25 + (t.progress || 0) * 0.4;
     const isBlockable = t.blockable !== false && t.type !== 'safezone';
@@ -381,7 +433,7 @@ export default class OnlineScene extends Phaser.Scene {
     }
   }
 
-  renderProjectiles(list) { const g = this.projGfx; g.clear(); if (!list) return; for (const pr of list) { g.fillStyle(pr.color, 1); g.fillCircle(pr.x, pr.y, pr.r); } }
+  renderProjectiles(list) { const g = this.projGfx; g.clear(); if (!list) return; for (const pr of list) { const sp = project(pr.x, pr.y); g.fillStyle(pr.color, 1); g.fillCircle(sp.x, sp.y, pr.r); } }
 
   consumeFx(fx) {
     if (!fx) return;
@@ -417,9 +469,9 @@ export default class OnlineScene extends Phaser.Scene {
       const box = this.add.rectangle(x, y, boxW, boxW, 0x1c2138, 0.95).setStrokeStyle(2, 0x3a4366).setDepth(60).setScrollFactor(0).setInteractive();
       box.on('pointerdown', () => this.castSlot(slot));
       this.add.text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, { fontFamily: 'Segoe UI', fontSize: '12px', fontStyle: 'bold', color: '#fff' }).setDepth(62).setScrollFactor(0);
-      this.add.text(x, y + boxW / 2 - 11, def.name, { fontFamily: 'Segoe UI', fontSize: '8px', color: def.color, align: 'center', wordWrap: { width: boxW - 4 } }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
+      const nameText = this.add.text(x, y + boxW / 2 - 11, def.name, { fontFamily: 'Segoe UI', fontSize: '8px', color: def.color, align: 'center', wordWrap: { width: boxW - 4 } }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
       const overlay = this.add.rectangle(x, y + boxW / 2, boxW, boxW, 0x000000, 0.65).setOrigin(0.5, 1).setDepth(61).setScrollFactor(0); overlay.height = 0;
-      this.skillBoxes.push({ slot, def, overlay, boxW, x, y });
+      this.skillBoxes.push({ slot, def, overlay, boxW, x, y, nameText });
     });
   }
 
@@ -448,7 +500,6 @@ export default class OnlineScene extends Phaser.Scene {
     this.add.text(invX, invY, 'I', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#8bd96a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     invBg.on('pointerdown', () => this.inventory.toggle()); this.invBtn = { x: invX, y: invY, r: 22 };
 
-
     const mapX = CONFIG.width - 44, mapY = 230;
     const mapBg = this.add.circle(mapX, mapY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8)
       .setDepth(70).setScrollFactor(0).setInteractive();
@@ -457,6 +508,10 @@ export default class OnlineScene extends Phaser.Scene {
     mapBg.on('pointerdown', () => this.mapPanel.toggle(this.curZone));
     this.mapBtn = { x: mapX, y: mapY, r: 22 };
 
+    const trX = CONFIG.width - 44, trY = 280;
+    const trBg = this.add.circle(trX, trY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffd24a, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
+    this.treeBadge = this.add.text(trX, trY, 'K', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffd24a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    trBg.on('pointerdown', () => this.treePanel.toggle()); this.treeBtn = { x: trX, y: trY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -499,8 +554,10 @@ export default class OnlineScene extends Phaser.Scene {
     if (me) {
       const meEnt = snap.players.find((p) => p.id === this.net.youId) || { hp: 0, maxHp: 1 };
       const s = me.stats;
-      this.statsText.setText([`${this.classDef.name}  Lv ${me.level}`, `HP ${Math.ceil(meEnt.hp)}/${meEnt.maxHp}`, `XP ${me.xp}/${me.xpToNext}`, `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`, me.statPoints > 0 ? `>> ${me.statPoints} point(s) — press C` : ''].join('\n'));
+      const sp = me.skillPoints || 0;
+      this.statsText.setText([`${this.classDef.name}  Lv ${me.level}`, `HP ${Math.ceil(meEnt.hp)}/${meEnt.maxHp}`, `XP ${me.xp}/${me.xpToNext}`, `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`, me.statPoints > 0 ? `>> ${me.statPoints} stat point(s) — press C` : '', sp > 0 ? `>> ${sp} skill point(s) — press K` : ''].filter(Boolean).join('\n'));
       this.xpFill.width = CONFIG.width * Phaser.Math.Clamp(me.xp / me.xpToNext, 0, 1);
+      if (this.treeBadge) this.treeBadge.setColor(sp > 0 ? '#7CFC9A' : '#ffd24a');
       for (const sb of this.skillBoxes) sb.overlay.height = sb.boxW * Phaser.Math.Clamp((me.cd[sb.slot] || 0) / sb.def.cd, 0, 1);
     }
     this.zoneText.setText(`Party ${this.net.code}   ·   ${z.name}${z.safe ? '  (safe)' : ''}`);
@@ -510,9 +567,9 @@ export default class OnlineScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------- fx ----
-  spawnText(x, y, value, color = '#ffffff', big = false) { const txt = this.add.text(x, y, String(value), { fontFamily: 'Segoe UI', fontSize: big ? '20px' : '14px', fontStyle: 'bold', color, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(80); this.tweens.add({ targets: txt, y: y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() }); }
-  spawnArc(cx, cy, facing, range, half) { const gfx = this.add.graphics().setDepth(15); let t = 0; const ev = this.time.addEvent({ delay: 14, loop: true, callback: () => { t += 14; gfx.clear(); gfx.lineStyle(5, 0xffeedd, (1 - t / 170) * 0.9); gfx.beginPath(); const steps = 12; for (let i = 0; i <= steps; i++) { const a = facing - half + (half * 2 * i) / steps; const px = cx + Math.cos(a) * range, py = cy + Math.sin(a) * range; i === 0 ? gfx.moveTo(px, py) : gfx.lineTo(px, py); } gfx.strokePath(); if (t >= 170) { gfx.destroy(); ev.remove(); } } }); }
-  spawnRing(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xc89bff); const fx = this.add.graphics().setDepth(12); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; fx.clear(); fx.lineStyle(4, color, Phaser.Math.Clamp(1 - t / 300, 0, 1)); fx.strokeCircle(x, y, radius * (t / 300)); if (t >= 300) { fx.destroy(); ev.remove(); } } }); }
-  spawnBlast(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xff7a3c); const fx = this.add.graphics().setDepth(12); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; const p = t / 280; fx.clear(); fx.fillStyle(color, (1 - p) * 0.5); fx.fillCircle(x, y, radius * Math.min(1, p * 1.2)); fx.lineStyle(3, color, 1 - p); fx.strokeCircle(x, y, radius); if (t >= 280) { fx.destroy(); ev.remove(); } } }); }
+  spawnText(x, y, value, color = '#ffffff', big = false) { const sp = project(x, y); const txt = this.add.text(sp.x, sp.y, String(value), { fontFamily: 'Segoe UI', fontSize: big ? '20px' : '14px', fontStyle: 'bold', color, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5).setDepth(80); this.tweens.add({ targets: txt, y: sp.y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() }); }
+  spawnArc(cx, cy, facing, range, half) { const gfx = this.add.graphics(); gfx.depth = 5e6; this.world.add(gfx); let t = 0; const ev = this.time.addEvent({ delay: 14, loop: true, callback: () => { t += 14; gfx.clear(); gfx.lineStyle(5, 0xffeedd, (1 - t / 170) * 0.9); gfx.beginPath(); const steps = 12; for (let i = 0; i <= steps; i++) { const a = facing - half + (half * 2 * i) / steps; const px = cx + Math.cos(a) * range, py = cy + Math.sin(a) * range; i === 0 ? gfx.moveTo(px, py) : gfx.lineTo(px, py); } gfx.strokePath(); if (t >= 170) { gfx.destroy(); ev.remove(); } } }); }
+  spawnRing(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xc89bff); const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; fx.clear(); fx.lineStyle(4, color, Phaser.Math.Clamp(1 - t / 300, 0, 1)); fx.strokeCircle(x, y, radius * (t / 300)); if (t >= 300) { fx.destroy(); ev.remove(); } } }); }
+  spawnBlast(x, y, radius, colorHex) { const color = this.hexToInt(colorHex, 0xff7a3c); const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx); let t = 0; const ev = this.time.addEvent({ delay: 16, loop: true, callback: () => { t += 16; const p = t / 280; fx.clear(); fx.fillStyle(color, (1 - p) * 0.5); fx.fillCircle(x, y, radius * Math.min(1, p * 1.2)); fx.lineStyle(3, color, 1 - p); fx.strokeCircle(x, y, radius); if (t >= 280) { fx.destroy(); ev.remove(); } } }); }
   hexToInt(hex, fallback) { if (typeof hex === 'number') return hex; if (typeof hex === 'string' && hex[0] === '#') return parseInt(hex.slice(1), 16); return fallback; }
 }

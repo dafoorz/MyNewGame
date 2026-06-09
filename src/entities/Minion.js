@@ -1,6 +1,9 @@
 // Friendly summoned minion (Necromancer). Chases the nearest enemy and melees
 // it; follows the player when nothing is in range. Expires after `duration`.
 
+import { project, bodyDepth } from '../iso.js';
+import { drawMinion } from '../sprites.js';
+
 export default class Minion {
   constructor(scene, x, y, damage, maxHp, duration, bounds) {
     this.scene = scene;
@@ -60,21 +63,16 @@ export default class Minion {
     const g = this.gfx;
     g.clear();
     if (!this.alive) return;
+    g.depth = bodyDepth(this.x, this.y);
     const fade = this.life < 2 ? 0.4 + 0.6 * (this.life / 2) : 1;
-    g.fillStyle(0x9ad17a, fade);
-    g.fillCircle(this.x, this.y, this.radius);
-    g.lineStyle(2, 0x3a5a2a, fade);
-    g.strokeCircle(this.x, this.y, this.radius);
+    const sp = project(this.x, this.y);
+    drawMinion(g, sp.x, sp.y, this.radius, fade);
 
-    // health bar
-    const barW = this.radius * 2.4;
-    const barH = 4;
-    const barX = this.x - barW / 2;
-    const barY = this.y - this.radius - 8;
-    g.fillStyle(0x220000, fade);
-    g.fillRect(barX, barY, barW, barH);
-    g.fillStyle(0x66ff44, fade);
-    g.fillRect(barX, barY, barW * (this.hp / this.maxHp), barH);
+    // health bar (above the head, in screen space)
+    const barW = this.radius * 2.4, barH = 4;
+    const barX = sp.x - barW / 2, barY = sp.y - this.radius * 2.1;
+    g.fillStyle(0x220000, fade); g.fillRect(barX, barY, barW, barH);
+    g.fillStyle(0x66ff44, fade); g.fillRect(barX, barY, barW * (this.hp / this.maxHp), barH);
   }
 
   destroy() {

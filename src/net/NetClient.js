@@ -53,6 +53,8 @@ export default class NetClient {
   sendUnequip(slot) { if (this.socket) this.socket.emit('unequip', { slot }); }
   sendDiscard(itemId) { if (this.socket) this.socket.emit('discard', { itemId }); }
   sendMapTravel(waystone) { if (this.socket) this.socket.emit('map_travel', { waystone }); }
+  sendSpendSkill(nodeId) { if (this.socket) this.socket.emit('spend_skill', { nodeId }); }
+  sendRespecSkill() { if (this.socket) this.socket.emit('respec_skill'); }
 
   leave() { if (this.socket) this.socket.emit('leave_party'); }
   close() { if (this.socket) { this.socket.emit('leave_party'); this.socket.disconnect(); } }

@@ -1,5 +1,7 @@
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
+import { project, bodyDepth } from '../iso.js';
+import { drawCreature } from '../sprites.js';
 
 // A zone mob. Idle until the player gets close, then chases (melee) or kites
 // and shoots (ranged). Leashes back to its spawn if the player runs far away.
@@ -45,8 +47,8 @@ export default class Mob {
     // melee
     this.attackReach = t.attackReach ?? 16;
 
-    this.gfx = scene.add.graphics().setDepth(8);
-    this.hpBar = new HealthBar(scene, x, y - this.radius - 9, 34, 5, { depth: 9 });
+    this.gfx = scene.add.graphics().setDepth(20);
+    this.hpBar = new HealthBar(scene, x, y - this.radius - 9, 34, 5, { depth: 55 });
     this.label = scene.add
       .text(x, y - this.radius - 20, `Lv${level} ${this.name}`, {
         fontFamily: 'Segoe UI, sans-serif',
@@ -54,7 +56,7 @@ export default class Mob {
         color: '#d8dcea',
       })
       .setOrigin(0.5)
-      .setDepth(9);
+      .setDepth(55);
   }
 
   takeDamage(amount) {
@@ -137,26 +139,14 @@ export default class Mob {
     const g = this.gfx;
     g.clear();
     if (!this.alive) return;
-
+    g.depth = bodyDepth(this.x, this.y);
+    const sp = project(this.x, this.y);
     const col = this.hitFlash > 0 ? 0xffffff : this.color;
-    g.fillStyle(col, 1);
-    if (this.kind === 'ranged') {
-      // diamond for ranged
-      g.beginPath();
-      g.moveTo(this.x, this.y - this.radius);
-      g.lineTo(this.x + this.radius, this.y);
-      g.lineTo(this.x, this.y + this.radius);
-      g.lineTo(this.x - this.radius, this.y);
-      g.closePath();
-      g.fillPath();
-    } else {
-      g.fillCircle(this.x, this.y, this.radius);
-    }
-    g.lineStyle(2, 0x000000, 0.35);
-    g.strokeCircle(this.x, this.y, this.radius);
+    drawCreature(g, sp.x, sp.y, this.radius, col, this.kind === 'ranged');
 
-    this.label.setPosition(this.x, this.y - this.radius - 20);
-    this.hpBar.setPosition(this.x, this.y - this.radius - 9);
+    const top = sp.y - this.radius * (this.kind === 'ranged' ? 2.6 : 2.1);
+    this.label.setPosition(sp.x, top - 6);
+    this.hpBar.setPosition(sp.x, top + 6);
     this.hpBar.setValue(this.hp / this.maxHp);
   }
 

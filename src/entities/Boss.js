@@ -1,45 +1,37 @@
 import { CONFIG } from '../config.js';
 import HealthBar from '../ui/HealthBar.js';
 import BossCore from '../world/BossCore.js';
+import { DEFAULT_BOSS } from '../world/bosses.js';
+import { project, projectDir, bodyDepth } from '../iso.js';
+import { drawBoss } from '../sprites.js';
 
-// Rendering wrapper around the shared BossCore state machine.
-// Keeps all Phaser visuals; delegates state/AI entirely to BossCore.
+// Solo boss: a thin Phaser renderer around the shared, data-driven BossCore
+// (src/world/BossCore.js + bosses.js). The core runs the whole state machine
+// (cleave / aoe / charge / summon / safezone + enrage); this class only draws it
+// and owns the HUD. GameScene feeds it a per-frame adapter via update().
 
 export default class Boss {
   constructor(scene, x, y, opts = {}) {
     this.scene = scene;
-    const bossKey = opts.bossKey || 'colossus';
-    const b = opts.bounds ?? CONFIG.arena;
-    this.core = new BossCore(bossKey, { w: b.w, h: b.h });
-    this.core.x = x;
-    this.core.y = y;
+    const bounds = opts.bounds ?? CONFIG.arena;
+    this.core = new BossCore(opts.bossKey || DEFAULT_BOSS, bounds);
+    if (typeof x === 'number') this.core.x = x;
+    if (typeof y === 'number') this.core.y = y;
 
     // DPS meter: damage taken per source + when the fight started (first hit).
     this.dmgBySource = new Map();
     this.combatStart = 0;
 
-    // visuals
     this.telegraphGfx = scene.add.graphics().setDepth(5);
     this.gfx = scene.add.graphics().setDepth(9);
 
-    // big fixed HUD bar
     this.hpBar = new HealthBar(scene, CONFIG.width / 2, 40, 620, 22, { depth: 60, fixed: true });
-    this.hpText = scene.add
-      .text(CONFIG.width / 2, 40, '', {
-        fontFamily: 'Segoe UI, sans-serif', fontSize: '13px', color: '#ffffff', fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
-    this.nameText = scene.add
-      .text(CONFIG.width / 2, 18, this.core.name, {
-        fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', color: '#ffd24a', fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
-    this.dpsText = scene.add
-      .text(CONFIG.width / 2, 56, '', {
-        fontFamily: 'Consolas, monospace', fontSize: '12px', color: '#ff9a5a', fontStyle: 'bold',
-        align: 'center', lineSpacing: 2, stroke: '#000', strokeThickness: 3,
-      }).setOrigin(0.5, 0).setDepth(61).setScrollFactor(0);
+    this.hpText = scene.add.text(CONFIG.width / 2, 40, '', { fontFamily: 'Segoe UI, sans-serif', fontSize: '13px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
+    this.nameText = scene.add.text(CONFIG.width / 2, 18, this.core.name, { fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', color: '#ffd24a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
+    this.dpsText = scene.add.text(CONFIG.width / 2, 56, '', { fontFamily: 'Consolas, monospace', fontSize: '12px', color: '#ff9a5a', fontStyle: 'bold', align: 'center', lineSpacing: 2, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(61).setScrollFactor(0);
   }
 
-  // --- proxy properties ---
+  // --- expose core state so existing GameScene code (enemies(), aim, etc.) works ---
   get x() { return this.core.x; }
   get y() { return this.core.y; }
   get alive() { return this.core.alive; }
@@ -75,32 +67,28 @@ export default class Boss {
   draw() {
     const g = this.gfx;
     g.clear();
-    if (!this.alive) return;
-    g.fillStyle(this.core.color, 1);
-    g.fillCircle(this.core.x, this.core.y, this.core.radius);
-    g.lineStyle(3, 0x000000, 0.4);
-    g.strokeCircle(this.core.x, this.core.y, this.core.radius);
-    if (this.core.enraged) {
-      g.lineStyle(3, 0xff5a5a, 0.8);
-      g.strokeCircle(this.core.x, this.core.y, this.core.radius + 6);
-    }
-    const fx = this.core.x + Math.cos(this.core.facing) * (this.core.radius + 4);
-    const fy = this.core.y + Math.sin(this.core.facing) * (this.core.radius + 4);
-    g.fillStyle(0xffd24a, 1);
-    g.fillCircle(fx, fy, 8);
+    if (!this.core.alive) return;
+    const c = this.core;
+    g.depth = bodyDepth(c.x, c.y); // upright billboard above the iso floor
+    const sp = project(c.x, c.y);
+    const fd = projectDir(Math.cos(c.facing), Math.sin(c.facing));
+    drawBoss(g, sp.x, sp.y, c.radius, c.color, { enraged: c.enraged, faceDx: fd.x, faceDy: fd.y });
   }
 
   drawTelegraph() {
     const g = this.telegraphGfx;
     g.clear();
-    const tg = this.core.telegraph;
-    if (!tg || this.core.state !== 'windup') return;
-    drawTelegraph(g, tg, this.core.progress());
+    g.depth = -1000; // ground decal: above the floor, below all bodies
+    const t = this.core.telegraph;
+    if (!t || this.core.state !== 'windup') return;
+    drawTelegraph(g, t, this.core.progress());
   }
 
   updateHud() {
-    this.hpBar.setValue(this.core.hp / this.core.maxHp);
-    this.hpText.setText(`${Math.ceil(this.core.hp)} / ${this.core.maxHp}`);
+    const c = this.core;
+    this.hpBar.setValue(c.hp / c.maxHp);
+    this.hpText.setText(`${Math.ceil(c.hp)} / ${c.maxHp}`);
+    this.nameText.setText(c.enraged ? `${c.name}  [ENRAGED]` : c.name);
     if (this.combatStart > 0) {
       const elapsed = (this.scene.time.now - this.combatStart) / 1000;
       const rows = [...this.dmgBySource.entries()]
@@ -150,6 +138,7 @@ export function drawTelegraph(g, t, progress) {
     g.lineStyle(3, 0xc06cff, 0.9); g.fillStyle(0xc06cff, alpha * 0.6);
     g.fillCircle(t.x, t.y, t.radius); g.strokeCircle(t.x, t.y, t.radius);
   } else if (t.type === 'safezone') {
+    // Whole room is dangerous except the green safe circle — get inside it!
     g.fillStyle(0xff4040, 0.18 + (progress || 0) * 0.22);
     g.fillRect(0, 0, t.bw, t.bh);
     g.fillStyle(0x4ad06a, 0.35); g.lineStyle(4, 0x7CFC9A, 0.95);

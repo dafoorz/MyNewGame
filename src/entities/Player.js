@@ -1,5 +1,7 @@
 import { CONFIG } from '../config.js';
 import HealthBar from '../ui/HealthBar.js';
+import { project, projectDir, bodyDepth } from '../iso.js';
+import { drawHumanoid, drawShadow } from '../sprites.js';
 
 // Player-controlled (or, for the ally, base) combatant.
 // Stage 1: the Tank. WASD to move, mouse to face, click to attack, 1-4 for skills.
@@ -53,8 +55,8 @@ export default class Player {
         color: '#ffffff',
       })
       .setOrigin(0.5)
-      .setDepth(11);
-    this.hpBar = new HealthBar(scene, x, y - this.radius - 12, 46, 6, { depth: 11 });
+      .setDepth(55);
+    this.hpBar = new HealthBar(scene, x, y - this.radius - 12, 46, 6, { depth: 55 });
   }
 
   // --- combat ---
@@ -171,58 +173,31 @@ export default class Player {
   draw() {
     const g = this.gfx;
     g.clear();
+    g.depth = bodyDepth(this.x, this.y); // upright billboard, sorted by ground pos
+    const sp = project(this.x, this.y);  // projected ground point (the feet)
+    const r = this.radius;
+    const headTop = sp.y - r * 2.9;       // where the label/bar float
 
     if (!this.alive) {
-      // Tombstone-ish marker for a downed combatant.
-      g.fillStyle(0x444a5e, 0.8);
-      g.fillCircle(this.x, this.y, this.radius);
-      this.label.setPosition(this.x, this.y - this.radius - 26);
-      this.label.setText(this.name + ' (down)');
-      this.hpBar.setPosition(this.x, this.y - this.radius - 12);
-      this.hpBar.setValue(0);
+      drawShadow(g, sp.x, sp.y, r, 0.4);
+      g.fillStyle(0x444a5e, 0.85); g.fillCircle(sp.x, sp.y - r * 0.4, r * 0.9);
+      this.label.setPosition(sp.x, headTop - 8).setText(this.name + ' (down)');
+      this.hpBar.setPosition(sp.x, headTop + 8); this.hpBar.setValue(0);
       return;
     }
 
-    // Body (flash white briefly when hit; translucent while stealthed).
-    const bodyColor = this.hitFlash > 0 ? 0xffffff : this.color;
-    g.fillStyle(bodyColor, this.stealth ? 0.35 : 1);
-    g.fillCircle(this.x, this.y, this.radius);
-    if (this.isBlocking) {
-      g.lineStyle(4, 0x4ad0ff, 0.95);
-      g.strokeCircle(this.x, this.y, this.radius * 1.6);
-    }
+    const rings = [];
+    if (this.buffTimer > 0) rings.push({ color: 0xffe066, alpha: 0.7, pad: 8 });
+    if (this.shieldTimer > 0) rings.push({ color: 0x66ccff, alpha: 0.9, w: 3, pad: 11 });
+    if (this.invulnTimer > 0) rings.push({ color: 0x5dd9ff, alpha: 0.9, w: 3, pad: 14 });
+    if (this.isBlocking) rings.push({ color: 0x4ad0ff, alpha: 0.95, w: 4, pad: 17 });
+    const fd = projectDir(Math.cos(this.facing), Math.sin(this.facing));
+    drawHumanoid(g, sp.x, sp.y, r, this.hitFlash > 0 ? 0xffffff : this.color, {
+      alpha: this.stealth ? 0.4 : 1, faceDx: fd.x, faceDy: fd.y, rings,
+    });
 
-    // Buff aura.
-    if (this.buffTimer > 0) {
-      g.lineStyle(2, 0xffe066, 0.7);
-      g.strokeCircle(this.x, this.y, this.radius + 9);
-    }
-    g.lineStyle(2, 0xffffff, 0.9);
-    g.strokeCircle(this.x, this.y, this.radius);
-
-    // Shield ring.
-    if (this.shieldTimer > 0) {
-      g.lineStyle(3, 0x66ccff, 0.9);
-      g.strokeCircle(this.x, this.y, this.radius + 6);
-    }
-
-    // Dodge i-frame ring.
-    if (this.invulnTimer > 0) {
-      g.lineStyle(3, 0x5dd9ff, 0.9);
-      g.strokeCircle(this.x, this.y, this.radius + 11);
-    }
-
-    // Facing indicator.
-    const fx = this.x + Math.cos(this.facing) * (this.radius + 12);
-    const fy = this.y + Math.sin(this.facing) * (this.radius + 12);
-    g.lineStyle(4, 0xffffff, 1);
-    g.beginPath();
-    g.moveTo(this.x, this.y);
-    g.lineTo(fx, fy);
-    g.strokePath();
-
-    this.label.setPosition(this.x, this.y - this.radius - 26);
-    this.hpBar.setPosition(this.x, this.y - this.radius - 12);
+    this.label.setPosition(sp.x, headTop - 8);
+    this.hpBar.setPosition(sp.x, headTop + 8);
     this.hpBar.setValue(this.hp / this.maxHp);
   }
 }

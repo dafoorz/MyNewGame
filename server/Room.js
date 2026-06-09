@@ -99,6 +99,8 @@ export default class Room {
   equipItem(id, itemId) { const p = this.players.get(id); if (p) p.equip(itemId); }
   unequipItem(id, slot) { const p = this.players.get(id); if (p) p.unequip(slot); }
   discardItem(id, itemId) { const p = this.players.get(id); if (p) p.discard(itemId); }
+  spendSkill(id, nodeId) { const p = this.players.get(id); if (p) p.spendSkill(nodeId); }
+  respecSkill(id) { const p = this.players.get(id); if (p) p.respecSkills(); }
 
   // Fast-travel to a previously discovered waystone (validated server-side).
   mapTravel(id, waystoneId) {
@@ -126,7 +128,7 @@ export default class Room {
   doCast(id, slot, aimX, aimY) {
     const p = this.players.get(id);
     if (!p || !p.alive) return;
-    const def = p.def.skills[slot - 1];
+    const def = p.effSkill(slot); // effective: skill-tree upgrades/unlocks applied
     if (!def || p.cooldowns[slot] > 0) return;
     const zone = this.getZone(p.zoneKey);
     zone.players = this.playersInZone(p.zoneKey);

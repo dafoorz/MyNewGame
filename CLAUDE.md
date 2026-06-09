@@ -59,6 +59,18 @@ src/
 
 ## Conventions / gotchas
 
+- **Isometric rendering is client-only (`src/iso.js` + `src/sprites.js`).** The
+  whole simulation stays in flat world (x, y) space — server authoritative, all
+  logic/multiplayer unchanged. Only the FLOOR + ground decals (zone grid,
+  portals, boss telegraphs, AoE FX) live in the transformed `this.world`
+  container so they distort into the iso diamond. Characters/mobs/boss/minions
+  and projectiles are UPRIGHT billboards drawn in scene space at `project(x,y)`
+  (placeholder vector art in `src/sprites.js`) — never in the container, so they
+  don't get squashed. Depth: bodies use `bodyDepth(x,y)` (scene depth band
+  10–~53, sorted by ground x+y); labels/bars sit at depth 55; the container
+  (floor) renders below all of them. Input is rotated to world via `dirToWorld`;
+  the cursor is `unproject`ed for aim/facing; facing markers use `projectDir`.
+  **Fall back to top-down anytime with `?iso=0`** (projection becomes identity).
 - **No build step.** Plain ES modules in the browser. Don't add bundlers.
 - **Cache-busting:** the script tag in `index.html` is `src/main.js?v=N`. Bump
   `N` whenever client JS changes, or mobile browsers serve stale code.
@@ -89,6 +101,19 @@ src/
   `src/keybinds.js` (localStorage). Rebindable keys (move/attack/skills/aim/
   char), Main Menu, Reset Keybinds, Fullscreen, and (solo) Reset Class
   Progress. Both scenes read `this.settings.binds` + a `held` Set for input.
+- Bosses are data-driven: `src/world/bosses.js` (per-boss stats/attacks/enrage/
+  loot) run by one shared, Phaser-free state machine `src/world/BossCore.js`
+  (solo `entities/Boss.js` renders it; server `sim/Boss.js` snapshots it). 4
+  bosses (Colossus → Bonelord → Embermaw → Sunderer) with cleave/aoe/charge/
+  summon/safezone + enrage. Add a boss = a `bosses.js` entry + a zone `boss:`.
+- Per-class skill trees: `src/skilltree.js` (Phaser-free; data + buildFromTree/
+  effectiveSkill/validation, imported by client AND server) + `src/ui/
+  SkillTreePanel.js` (shared UI, 'K' key/button). 1 skill point/level (separate
+  from the 3 stat points). Nodes = stat passives, skill upgrades, or capstone
+  unlocks. Solo saves the allocation to localStorage; online the server
+  validates every spend (`spend_skill`/`respec_skill`) and re-derives saved
+  allocations via `sanitizeAllocation` — no client trust. Stats fold the tree's
+  stat nodes into `recomputeStats`; casts use the effective skill def.
 
 ## Next / TODO ideas
 

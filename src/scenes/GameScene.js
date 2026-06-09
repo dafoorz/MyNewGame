@@ -1,9 +1,8 @@
-import { CONFIG, STAT_PRESETS } from '../config.js';
+import { CONFIG } from '../config.js';
 import { Stats } from '../stats.js';
 import AggroTable from '../systems/AggroTable.js';
 import Progression from '../systems/Progression.js';
 import Player from '../entities/Player.js';
-import Ally from '../entities/Ally.js';
 import Boss from '../entities/Boss.js';
 import Mob from '../entities/Mob.js';
 import Minion from '../entities/Minion.js';
@@ -13,10 +12,13 @@ import { loadProgress, saveProgress, clearProgress, loadWorldSeed } from '../pro
 import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
 import MapPanel from '../ui/MapPanel.js';
+import SkillTreePanel from '../ui/SkillTreePanel.js';
+import { buildFromTree, effectiveSkills, sanitizeAllocation, availablePoints, canSpend } from '../skilltree.js';
 import {
   STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
   rollDrop, rollItem, rarityColor,
 } from '../items.js';
+import { applyIso, project, unproject, dirToWorld, zoneBounds } from '../iso.js';
 
 const STAT_INFO = [
   ['STR', 'melee damage'],
@@ -36,6 +38,12 @@ export default class GameScene extends Phaser.Scene {
   create(data) {
     this.isTouch = this.sys.game.device.input.touch || 'ontouchstart' in window;
 
+    // Isometric world container: all world GRAPHICS live here and inherit the
+    // iso transform (ground, bodies, telegraphs, projectiles, FX). Text and
+    // health bars stay in scene space, positioned via project() so they stay
+    // crisp. The simulation itself is unchanged — flat world coordinates.
+    this.world = applyIso(this.add.container(0, 0));
+
     // --- chosen class -> player build ---
     this.classKey = (data && data.classKey) || DEFAULT_CLASS;
     this.classDef = CLASSES[this.classKey];
@@ -47,16 +55,20 @@ export default class GameScene extends Phaser.Scene {
 
     this.progression = new Progression();
     // Loot & equipment: base/leveled attributes live in baseAttrs; the player's
-    // derived Stats are rebuilt from baseAttrs + equipped gear (recomputeStats).
+    // derived Stats are rebuilt from baseAttrs + equipped gear + skill tree.
     this.baseAttrs = { ...this.classDef.stats };
     this.gear = emptyGear();
     this.inventory = [];
+    this.skillTree = {}; // skill-tree allocation { nodeId: rank }
+    this.recomputeBuild();
     this.player = new Player(this, 200, 400, new Stats(totalAttrs(this.baseAttrs, this.gear)), {
       name: this.classDef.name,
       color: this.classDef.color,
       threatMultiplier: this.classDef.threat,
       attackRange: this.basic.range,
     });
+    // The player BODY is an upright billboard in scene space (not the squashed
+    // world container) — only its ground position is projected.
 
     // Restore this class's saved progress on this device (if any).
     const saved = loadProgress(this.classKey);
@@ -71,6 +83,10 @@ export default class GameScene extends Phaser.Scene {
         if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
       }
       if (Array.isArray(saved.waypoints)) for (const w of saved.waypoints) this.discovered.add(w);
+      // Skill tree: re-derive a legal allocation from the save (drops anything
+      // the current level can't afford).
+      this.skillTree = sanitizeAllocation(this.classKey, saved.skillTree, this.progression.level);
+      this.recomputeBuild();
       this.recomputeStats();
       this.player.hp = this.player.maxHp;
     }
@@ -81,16 +97,17 @@ export default class GameScene extends Phaser.Scene {
     this.minions = [];
     this.dots = [];
     this.boss = null;
-    this.mage = null;
     this.aggro = new AggroTable();
     this.portalSprites = [];
     this.respawnToken = 0;
     this.autoAim = false;
 
-    this.zoneGfx = this.add.graphics().setDepth(-1);
-    this.portalGfx = this.add.graphics().setDepth(1);
-    this.waystoneGfx = this.add.graphics().setDepth(1);
-    this.projGfx = this.add.graphics().setDepth(7);
+    // Ground at the bottom, portals + waystones just above it, projectiles above bodies.
+    // (Bodies/telegraphs depth-sort by world position; see iso depth().)
+    this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
+    this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
+    this.waystoneGfx = this.add.graphics(); this.waystoneGfx.depth = -9e6 + 1; this.world.add(this.waystoneGfx);
+    this.projGfx = this.add.graphics().setDepth(53); // projectiles: upright billboards
 
     this.setupInput();
     this.buildHud();
@@ -115,8 +132,13 @@ export default class GameScene extends Phaser.Scene {
       getSeed: () => this.seed,
       onTravel: (id) => this.travelToWaystone(id),
     });
+    this.treePanel = new SkillTreePanel(this, {
+      getModel: () => ({ classKey: this.classKey, level: this.progression.level, alloc: this.skillTree }),
+      onSpend: (nodeId) => this.spendSkillNode(nodeId),
+      onRespec: () => this.respecSkills(),
+    });
     this.settings = new SettingsPanel(this, {
-      onMainMenu: () => { this.persist(); this.scene.start('ClassSelectScene'); },
+      onMainMenu: () => { this.persist(); this.scene.start('LobbyScene'); },
       onResetProgress: () => { clearProgress(this.classKey); this.scene.restart({ classKey: this.classKey }); },
     });
 
@@ -143,12 +165,12 @@ export default class GameScene extends Phaser.Scene {
     this.dots = [];
     this.projGfx.clear();
     if (this.boss) { this.boss.destroy(); this.boss = null; }
-    if (this.mage) { this.mage.destroy(); this.mage = null; }
     this.aggro = new AggroTable();
     this.portalSprites.forEach((o) => o.destroy());
     this.portalSprites = [];
 
-    this.cameras.main.setBounds(0, 0, z.size.w, z.size.h);
+    const zb = zoneBounds(z.size.w, z.size.h); // camera bounds in projected space
+    this.cameras.main.setBounds(zb.x, zb.y, zb.w, zb.h);
     this.player.bounds = bounds;
 
     if (at) {
@@ -208,10 +230,11 @@ export default class GameScene extends Phaser.Scene {
       g.fillCircle(p.x, p.y, 40);
       g.lineStyle(3, col, 0.9);
       g.strokeCircle(p.x, p.y, 40);
-      const label = this.add.text(p.x, p.y - 56, p.label, {
+      const sp = project(p.x, p.y);
+      const label = this.add.text(sp.x, sp.y - 56, p.label, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '14px', fontStyle: 'bold',
         color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4,
-      }).setOrigin(0.5).setDepth(2);
+      }).setOrigin(0.5).setDepth(40);
       this.portalSprites.push(label);
     }
   }
@@ -268,8 +291,15 @@ export default class GameScene extends Phaser.Scene {
     for (let i = 0; i < z.mobCount; i++) {
       const typeKey = Phaser.Utils.Array.GetRandom(z.mobTypes);
       const pos = this.randomSpawnPos(z);
-      this.mobs.push(new Mob(this, typeKey, pos.x, pos.y, z.mobLevel, bounds));
+      this.mobs.push(this.isoAdopt(new Mob(this, typeKey, pos.x, pos.y, z.mobLevel, bounds)));
     }
+  }
+
+  // Boss telegraphs are ground decals → they belong in the iso world layer so
+  // they distort onto the floor. Bodies stay upright in scene space.
+  isoAdopt(e) {
+    if (e.telegraphGfx) this.world.add(e.telegraphGfx);
+    return e;
   }
 
   randomSpawnPos(z) {
@@ -285,11 +315,38 @@ export default class GameScene extends Phaser.Scene {
 
   spawnBossEncounter(bounds) {
     const cx = bounds.w / 2, cy = bounds.h / 2;
-    this.boss = new Boss(this, cx, cy - 40, { bounds });
-    this.mage = new Ally(this, cx - 200, cy - 40, new Stats(STAT_PRESETS.mage), { name: 'Mage Ally' });
-    this.mage.bounds = bounds;
+    this.boss = this.isoAdopt(new Boss(this, cx, cy - 40, { bounds, bossKey: this.zone.boss }));
     this.aggro.register(this.player);
-    this.aggro.register(this.mage);
+  }
+
+  // Boss-summoned add: spawn near the boss, pre-engaged, flagged so it never
+  // respawns (summons are tied to the fight, not the zone's normal spawns).
+  spawnAdd(typeKey, x, y, level) {
+    if (this.mobs.length >= 40) return;
+    const mob = this.isoAdopt(new Mob(this, typeKey, x, y, level, this.bounds));
+    mob.summoned = true; mob.engaged = true;
+    this.mobs.push(mob);
+  }
+
+  // Per-frame adapter the shared BossCore uses (mirrors the server's Zone one).
+  bossAdapter() {
+    return {
+      bounds: this.bounds,
+      getCombatants: () => {
+        const list = [];
+        if (this.player.alive && !this.player.stealth) list.push(this.player);
+        for (const mn of this.minions) if (mn.alive) list.push(mn);
+        return list;
+      },
+      getTarget: () => this.aggro.getTarget(),
+      hit: (e, amount) => {
+        const dealt = e.takeDamage(amount);
+        this.spawnText(e.x, e.y - e.radius - 4, dealt != null ? dealt : amount, '#ff6b6b');
+        if (!e.alive) this.aggro.remove(e);
+      },
+      spawnAdd: (typeKey, x, y, level) => this.spawnAdd(typeKey, x, y, level),
+      addFx: (f) => { if (f.t === 'text') this.spawnText(f.x, f.y, f.msg, f.color, f.big); },
+    };
   }
 
   spawnAdd(typeKey, x, y, level) {
@@ -409,7 +466,7 @@ export default class GameScene extends Phaser.Scene {
     this.move = { x: 0, y: 0 };
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,M');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -439,6 +496,7 @@ export default class GameScene extends Phaser.Scene {
         case 'inv': this.invPanel.toggle(); break;
         case 'block': this.useSkill(6); break;
         case 'map': this.mapPanel.toggle(this.zoneKey); break;
+        case 'tree': this.treePanel.toggle(); break;
       }
     });
     this.input.keyboard.on('keyup', (e) => this.held.delete(e.code));
@@ -447,6 +505,7 @@ export default class GameScene extends Phaser.Scene {
   isOverUI(p) {
     if (this.settings && this.settings.open) return true;
     if (this.invPanel && this.invPanel.contains(p.x, p.y)) return true;
+    if (this.treePanel && this.treePanel.contains(p.x, p.y)) return true;
     if (this.charPanelOpen && Math.abs(p.x - CONFIG.width / 2) < 200) return true;
     if (this.skillBoxes) {
       for (const sb of this.skillBoxes) {
@@ -460,6 +519,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
     if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
     if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
+    if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
     return false;
   }
 
@@ -515,8 +575,8 @@ export default class GameScene extends Phaser.Scene {
     const px = this.player.x, py = this.player.y;
     if (this.autoAim) { const e = this.nearestEnemy(); if (e) return { x: e.x, y: e.y }; }
     else if (!this.isTouch) {
-      const p = this.input.activePointer;
-      let dx = p.worldX - px, dy = p.worldY - py;
+      const wp = unproject(this.input.activePointer.worldX, this.input.activePointer.worldY);
+      let dx = wp.x - px, dy = wp.y - py;
       const d = Math.hypot(dx, dy) || 1;
       if (d > castRange) { dx = (dx / d) * castRange; dy = (dy / d) * castRange; }
       return { x: px + dx, y: py + dy };
@@ -557,7 +617,7 @@ export default class GameScene extends Phaser.Scene {
   // `source` is the attacker credited with threat (defaults to the player).
   damageEnemy(enemy, amount, crit, threatMult = 1, source = this.player) {
     if (enemy === this.boss) {
-      this.boss.takeDamage(amount, source === this.mage ? 'Ally' : 'You');
+      this.boss.takeDamage(amount, 'You');
       this.aggro.add(source, amount * (source.threatMultiplier || 1) * threatMult);
     } else {
       enemy.takeDamage(amount);
@@ -597,7 +657,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   useSkill(slot) {
-    const def = this.skills[slot - 1];
+    const def = this.effSkills[slot - 1]; // skill-tree upgrades/unlocks applied
     if (!def || !this.player.alive || this.player.isOnCooldown(slot)) return;
     this.castSkill(def);
     this.player.startCooldown(slot, def.cd);
@@ -653,9 +713,6 @@ export default class GameScene extends Phaser.Scene {
         break;
       case 'buff':
         this.player.applyBuff({ damageMult: def.damageMult || 1, speedMult: def.speedMult || 1, duration: def.duration });
-        if (def.allies && this.mage && this.mage.alive) {
-          this.mage.applyBuff({ damageMult: def.damageMult || 1, speedMult: def.speedMult || 1, duration: def.duration });
-        }
         this.spawnText(this.player.x, this.player.y - 30, def.speedMult > 1 ? 'HASTE' : 'BLESSED', '#9be8ff');
         break;
       case 'stealth':
@@ -702,7 +759,7 @@ export default class GameScene extends Phaser.Scene {
         const hp = Math.round(30 + this.progression.level * 8 + this.player.stats.INT * 2);
         for (let i = 0; i < def.count; i++) {
           const ang = Math.random() * Math.PI * 2;
-          const mn = new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds);
+          const mn = this.isoAdopt(new Minion(this, this.player.x + Math.cos(ang) * 30, this.player.y + Math.sin(ang) * 30, dmg, hp, def.duration, this.bounds));
           mn.threatMultiplier = 1.0; // minions share the same threat weight as non-tank classes
           if (this.boss) this.aggro.register(mn);
           this.minions.push(mn);
@@ -717,10 +774,6 @@ export default class GameScene extends Phaser.Scene {
     const amount = Math.round(this.player.stats.magPower * def.intMult);
     const healed = this.player.heal(amount);
     if (healed > 0) this.spawnText(this.player.x, this.player.y - 30, '+' + healed, '#7CFC9A');
-    if (def.allies && this.mage && this.mage.alive) {
-      const h2 = this.mage.heal(amount);
-      if (h2 > 0) this.spawnText(this.mage.x, this.mage.y - 30, '+' + h2, '#7CFC9A');
-    }
   }
 
   fireBolt(def) {
@@ -757,15 +810,17 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     this.persist();
+    const wasSummoned = mob.summoned;
     mob.destroy();
     this.mobs = this.mobs.filter((m) => m !== mob);
+    if (wasSummoned) return; // boss adds don't respawn
 
     const token = this.respawnToken;
     const z = this.zone;
     this.time.delayedCall(8000, () => {
       if (token !== this.respawnToken) return;
       const pos = this.randomSpawnPos(z);
-      this.mobs.push(new Mob(this, mob.typeKey, pos.x, pos.y, mob.level, this.bounds));
+      this.mobs.push(this.isoAdopt(new Mob(this, mob.typeKey, pos.x, pos.y, mob.level, this.bounds)));
     });
   }
 
@@ -773,6 +828,7 @@ export default class GameScene extends Phaser.Scene {
     this.player.recalc();
     this.player.hp = this.player.maxHp;
     this.spawnText(this.player.x, this.player.y - 46, `LEVEL UP! Lv${this.progression.level}`, '#ffe066', true);
+    if (this.treePanel && this.treePanel.open) this.treePanel.refresh();
   }
 
   // ============================================================ PROJECTILES ==
@@ -827,8 +883,9 @@ export default class GameScene extends Phaser.Scene {
         }
         if (hitMinion) continue;
       }
+      const psp = project(pr.x, pr.y);
       g.fillStyle(pr.color, 1);
-      g.fillCircle(pr.x, pr.y, pr.r);
+      g.fillCircle(psp.x, psp.y, pr.r);
       next.push(pr);
     }
     this.projectiles = next;
@@ -853,10 +910,14 @@ export default class GameScene extends Phaser.Scene {
 
   update(time, delta) {
     const dt = Math.min(delta / 1000, 0.05);
+    const bossWasAlive = this.boss && this.boss.alive;
 
     if (this.player.alive) {
+      // Movement intent is in SCREEN space; rotate it into world space so the
+      // controls feel aligned with the isometric view (dirToWorld).
       if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
-        this.player.moveBy(this.move.x, this.move.y, dt);
+        const w = dirToWorld(this.move.x, this.move.y);
+        this.player.moveBy(w.x, w.y, dt);
       } else {
         let mx = 0, my = 0;
         const b = this.settings.binds;
@@ -867,8 +928,8 @@ export default class GameScene extends Phaser.Scene {
           if (this.held.has(b.down)) my += 1;
         }
         if (mx !== 0 || my !== 0) {
-          const len = Math.hypot(mx, my);
-          this.player.moveBy(mx / len, my / len, dt);
+          const w = dirToWorld(mx, my);
+          this.player.moveBy(w.x, w.y, dt);
         }
       }
     }
@@ -878,11 +939,13 @@ export default class GameScene extends Phaser.Scene {
       if (e) this.player.facing = Math.atan2(e.y - this.player.y, e.x - this.player.x);
     } else if (this.isTouch) {
       if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
-        this.player.facing = Math.atan2(this.move.y, this.move.x);
+        const w = dirToWorld(this.move.x, this.move.y);
+        this.player.facing = Math.atan2(w.y, w.x);
       }
     } else {
       const p = this.input.activePointer;
-      this.player.facing = Math.atan2(p.worldY - this.player.y, p.worldX - this.player.x);
+      const wp = unproject(p.worldX, p.worldY); // cursor -> world target
+      this.player.facing = Math.atan2(wp.y - this.player.y, wp.x - this.player.x);
     }
 
     this.player.update(dt);
@@ -909,7 +972,6 @@ export default class GameScene extends Phaser.Scene {
     this.updateProjectiles(dt);
     this.updateDots(dt);
 
-    const bossWasAlive = this.boss && this.boss.alive;
     if (this.boss) {
       if (this.mage) {
         this.mage.aiUpdate(dt, {
@@ -929,10 +991,31 @@ export default class GameScene extends Phaser.Scene {
 
     if (!this.player.alive) this.respawnInTown();
 
+    this.world.sort('depth'); // painter's order for the iso world layer
     this.checkPortals();
     this.checkWaystones();
     this.centerCamera(false);
     this.updateHud();
+  }
+
+  onBossDeath() {
+    const { loot, xp } = this.boss.cfg;
+    this.spawnText(this.bounds.w / 2, this.bounds.h / 2, 'BOSS SLAIN!', '#7CFC9A', true);
+    if (this.progression.addXp(xp)) this.onLevelUp();
+    this.spawnText(this.player.x, this.player.y - 64, `+${xp} XP`, '#9be8ff');
+    let full = false;
+    for (let i = 0; i < loot.count; i++) {
+      const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+      if (this.inventory.length < INV_CAP) {
+        this.inventory.push(drop);
+        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+      } else full = true;
+    }
+    if (full) this.spawnText(this.player.x, this.player.y - 80, 'Backpack full — make room!', '#ff7a7a');
+    // Despawn leftover summoned adds.
+    this.mobs = this.mobs.filter((m) => { if (m.summoned) { this.aggro.remove(m); m.destroy(); return false; } return true; });
+    if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
+    this.persist();
   }
 
   respawnInTown() {
@@ -963,8 +1046,9 @@ export default class GameScene extends Phaser.Scene {
 
   centerCamera(snap) {
     const cam = this.cameras.main;
-    const tx = this.player.x - cam.width / 2;
-    const ty = this.player.y - cam.height / 2;
+    const sp = project(this.player.x, this.player.y); // follow the projected position
+    const tx = sp.x - cam.width / 2;
+    const ty = sp.y - cam.height / 2;
     if (snap) { cam.scrollX = tx; cam.scrollY = ty; }
     else {
       cam.scrollX += (tx - cam.scrollX) * 0.12;
@@ -1003,14 +1087,14 @@ export default class GameScene extends Phaser.Scene {
       this.add.text(x - boxW / 2 + 5, y - boxW / 2 + 3, def.key, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '12px', fontStyle: 'bold', color: '#fff',
       }).setDepth(62).setScrollFactor(0);
-      this.add.text(x, y + boxW / 2 - 11, def.name, {
+      const nameText = this.add.text(x, y + boxW / 2 - 11, this.effSkills[i].name, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '8px', color: def.color,
         align: 'center', wordWrap: { width: boxW - 4 },
       }).setOrigin(0.5).setDepth(62).setScrollFactor(0);
       const overlay = this.add.rectangle(x, y + boxW / 2, boxW, boxW, 0x000000, 0.65)
         .setOrigin(0.5, 1).setDepth(61).setScrollFactor(0);
       overlay.height = 0;
-      this.skillBoxes.push({ slot, def, overlay, boxW, x, y });
+      this.skillBoxes.push({ slot, def: this.effSkills[i], overlay, boxW, x, y, nameText });
     });
   }
 
@@ -1053,7 +1137,6 @@ export default class GameScene extends Phaser.Scene {
     invBg.on('pointerdown', () => this.invPanel.toggle());
     this.invBtn = { x: invX, y: invY, r: 22 };
 
-
     const mapBtnX = CONFIG.width - 44, mapBtnY = 230;
     const mapBtnBg = this.add.circle(mapBtnX, mapBtnY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8)
       .setDepth(70).setScrollFactor(0).setInteractive();
@@ -1062,6 +1145,13 @@ export default class GameScene extends Phaser.Scene {
     mapBtnBg.on('pointerdown', () => this.mapPanel.toggle(this.zoneKey));
     this.mapBtn = { x: mapBtnX, y: mapBtnY, r: 22 };
 
+    const trX = CONFIG.width - 44, trY = 280;
+    const trBg = this.add.circle(trX, trY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffd24a, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.treeBadge = this.add.text(trX, trY, 'K', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffd24a' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    trBg.on('pointerdown', () => this.treePanel.toggle());
+    this.treeBtn = { x: trX, y: trY, r: 22 };
 
     if (!this.isTouch) return;
     const ax = CONFIG.width - 80, ay = CONFIG.height - 96;
@@ -1126,14 +1216,39 @@ export default class GameScene extends Phaser.Scene {
     this.refreshCharPanel();
   }
 
-  // Rebuild the player's derived Stats from base attributes + equipped gear,
-  // keeping the current HP fraction. Call after spending a point or equipping.
+  // Rebuild the player's derived Stats from base attributes + equipped gear +
+  // skill-tree stat nodes, keeping the current HP fraction.
   recomputeStats() {
     const ratio = this.player.maxHp ? this.player.hp / this.player.maxHp : 1;
-    this.player.stats = new Stats(totalAttrs(this.baseAttrs, this.gear));
+    const a = totalAttrs(this.baseAttrs, this.gear);
+    for (const k of STAT_KEYS) a[k] += this.build.stat[k] || 0;
+    this.player.stats = new Stats(a);
     this.player.maxHp = this.player.stats.maxHp;
     this.player.hp = Math.min(this.player.maxHp, Math.max(1, Math.round(this.player.maxHp * ratio)));
   }
+
+  // Recompute the skill-tree build + the effective skill defs (upgrades/unlocks).
+  recomputeBuild() {
+    this.build = buildFromTree(this.classKey, this.skillTree);
+    this.effSkills = effectiveSkills(this.classDef, this.build);
+    if (this.skillBoxes) for (const sb of this.skillBoxes) { const d = this.effSkills[sb.slot - 1]; sb.def = d; if (sb.nameText) sb.nameText.setText(d.name); }
+  }
+
+  // --- skill tree (solo, local) ---
+  spendSkillNode(nodeId) {
+    if (!canSpend(this.classKey, this.skillTree, this.progression.level, nodeId)) return;
+    this.skillTree[nodeId] = (this.skillTree[nodeId] || 0) + 1;
+    this.recomputeBuild();
+    this.recomputeStats();
+    this.persist();
+  }
+  respecSkills() {
+    this.skillTree = {};
+    this.recomputeBuild();
+    this.recomputeStats();
+    this.persist();
+  }
+  skillPointsLeft() { return availablePoints(this.classKey, this.progression.level, this.skillTree); }
 
   // --- inventory / equipment (solo, local) ---
   equipItem(itemId) {
@@ -1176,6 +1291,7 @@ export default class GameScene extends Phaser.Scene {
       stats: { ...this.baseAttrs },
       inventory: this.inventory,
       gear: this.gear,
+      skillTree: this.skillTree,
       waypoints: [...this.discovered],
     });
   }
@@ -1207,8 +1323,10 @@ export default class GameScene extends Phaser.Scene {
       `HP ${Math.ceil(this.player.hp)}/${this.player.maxHp}`,
       `XP ${pr.xp}/${pr.xpToNext()}`,
       `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`,
-      pr.statPoints > 0 ? `>> ${pr.statPoints} point(s) — press C` : '',
-    ].join('\n'));
+      pr.statPoints > 0 ? `>> ${pr.statPoints} stat point(s) — press C` : '',
+      this.skillPointsLeft() > 0 ? `>> ${this.skillPointsLeft()} skill point(s) — press K` : '',
+    ].filter(Boolean).join('\n'));
+    if (this.treeBadge) this.treeBadge.setColor(this.skillPointsLeft() > 0 ? '#7CFC9A' : '#ffd24a');
 
     const raidLabel = this.zone.raid ? ` [${({ wave1: 'Wave 1', boss1: 'Guardian', wave2: 'Wave 2', boss2: 'Warden', final: 'WORLDBREAKER', done: 'CLEARED' })[this.raidState] || ''}]` : '';
     this.zoneText.setText(this.zone.name + (this.zone.safe ? '  (safe)' : '') + raidLabel);
@@ -1223,7 +1341,7 @@ export default class GameScene extends Phaser.Scene {
   // ======================================================= EFFECTS / FX =====
 
   spawnSwingArc(player, range, half) {
-    const gfx = this.add.graphics().setDepth(15);
+    const gfx = this.add.graphics(); gfx.depth = 5e6; this.world.add(gfx);
     const cx = player.x, cy = player.y, facing = player.facing;
     let t = 0;
     const ev = this.time.addEvent({
@@ -1247,7 +1365,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnRing(x, y, radius, colorHex) {
     const color = this.hexToInt(colorHex, 0xc89bff);
-    const fx = this.add.graphics().setDepth(12);
+    const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx);
     let t = 0;
     const ev = this.time.addEvent({
       delay: 16, loop: true,
@@ -1263,7 +1381,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnBlastFx(x, y, radius, colorHex) {
     const color = this.hexToInt(colorHex, 0xff7a3c);
-    const fx = this.add.graphics().setDepth(12);
+    const fx = this.add.graphics(); fx.depth = 5e6; this.world.add(fx);
     let t = 0;
     const ev = this.time.addEvent({
       delay: 16, loop: true,
@@ -1287,10 +1405,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnText(x, y, value, color = '#ffffff', big = false) {
-    const txt = this.add.text(x, y, String(value), {
+    const sp = project(x, y); // floating text lives in screen space at the projected spot
+    const txt = this.add.text(sp.x, sp.y, String(value), {
       fontFamily: 'Segoe UI, sans-serif', fontSize: big ? '20px' : '14px', fontStyle: 'bold',
       color, stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(80);
-    this.tweens.add({ targets: txt, y: y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() });
+    this.tweens.add({ targets: txt, y: sp.y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() });
   }
 }

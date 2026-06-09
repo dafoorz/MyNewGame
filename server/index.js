@@ -77,12 +77,20 @@ io.on('connection', (socket) => {
     if (room) room.discardItem(socket.id, itemId);
   });
 
-
   socket.on('map_travel', ({ waystone } = {}) => {
     const room = rooms.get(currentCode);
     if (room && typeof waystone === 'string') room.mapTravel(socket.id, waystone);
   });
 
+  socket.on('spend_skill', ({ nodeId } = {}) => {
+    const room = rooms.get(currentCode);
+    if (room && typeof nodeId === 'string') room.spendSkill(socket.id, nodeId);
+  });
+
+  socket.on('respec_skill', () => {
+    const room = rooms.get(currentCode);
+    if (room) room.respecSkill(socket.id);
+  });
 
   const leave = () => {
     const room = rooms.get(currentCode);

@@ -95,7 +95,6 @@ export default class Zone {
     };
   }
 
-
   // What a mob attacks: the nearest player-side entity. Minions are treated
   // identically to players — no taunt preference, just closest wins.
   mobTarget(mob) {
@@ -253,29 +252,31 @@ export default class Zone {
         if (killer && killer.addItem(drop)) this.addFx({ t: 'loot', x: m.x, y: m.y - 28, rarity: drop.rarity, name: drop.name });
         else if (killer) this.addFx({ t: 'text', x: killer.x, y: killer.y - 34, msg: 'Backpack full!', color: '#ff7a7a' });
       }
-      this.respawnQueue.push({ typeKey: m.typeKey, level: m.level, at: this.clock + 8 });
+      if (!m.summoned) this.respawnQueue.push({ typeKey: m.typeKey, level: m.level, at: this.clock + 8 });
     }
     this.mobs = alive;
   }
 
   onBossDeath() {
+    const loot = this.boss.cfg.loot, xp = this.boss.cfg.xp;
     for (const p of this.players) {
-      const levels = p.addXp(500); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: 500 }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
-      // Boss loot: every participant gets 2 guaranteed, high-rarity drops.
+      const levels = p.addXp(xp); this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: xp }); if (levels > 0) { p.recalc(); p.hp = p.maxHp; }
+      // Boss loot: every participant gets guaranteed, high-rarity drops scaled by tier.
       let full = false;
-      for (let i = 0; i < 2; i++) {
-        const drop = rollItem({ ilvl: 12, rarityBoost: 0.8 });
-        if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x + (i ? 24 : -24), y: p.y - 34, rarity: drop.rarity, name: drop.name });
+      for (let i = 0; i < loot.count; i++) {
+        const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+        if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x + (i - (loot.count - 1) / 2) * 24, y: p.y - 34, rarity: drop.rarity, name: drop.name });
         else full = true;
       }
       if (full) this.addFx({ t: 'text', x: p.x, y: p.y - 54, msg: 'Backpack full — make room!', color: '#ff7a7a' });
     }
     this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'BOSS SLAIN!', color: '#7CFC9A', big: true });
+    this.mobs = this.mobs.filter((m) => !m.summoned); // despawn leftover adds
     this.aggro = new AggroTable();
     this.bossResetTimer = 10;
     this.bossDmg.clear(); this.bossFightStart = 0;
   }
-  resetBoss() { this.boss = new Boss(this.bounds); this._bossWasAlive = true; this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: 'The Colossus rises again...', color: '#ffd24a', big: true }); }
+  resetBoss() { this.boss = new Boss(this.bounds, this.def.boss); this._bossWasAlive = true; this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: `${this.boss.name} stirs again...`, color: '#ffd24a', big: true }); }
 
   _raidSpawnWave(count) {
     const z = this.def;

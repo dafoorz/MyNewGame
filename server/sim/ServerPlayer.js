@@ -3,6 +3,7 @@ import { CLASSES, DEFAULT_CLASS } from '../../src/classes/classes.js';
 import { START_ZONE } from '../../src/world/zones.js';
 import { clamp } from './mathutil.js';
 import { STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem } from '../../src/items.js';
+import { buildFromTree, effectiveSkill, sanitizeAllocation, availablePoints, canSpend } from '../../src/skilltree.js';
 
 // Authoritative player state. The client sends movement intent + cast requests;
 // everything that affects combat, position, XP and leveling is decided here.
@@ -16,7 +17,9 @@ export default class ServerPlayer {
     this.baseAttrs = { ...this.def.stats }; // leveled attributes (no gear)
     this.gear = emptyGear();                // equipped items per slot
     this.inventory = [];                    // backpack
-    this.stats = new Stats(totalAttrs(this.baseAttrs, this.gear)); // base + gear
+    this.skillTree = {};                    // skill-tree allocation { nodeId: rank }
+    this.skillBuild = buildFromTree(this.classKey, this.skillTree);
+    this.stats = new Stats(this.totalAttrsWithBuild()); // base + gear + tree
     this.threatMultiplier = this.def.threat;
 
     this.radius = 16;
@@ -94,17 +97,48 @@ export default class ServerPlayer {
       if (it && it.slot === slot && canEquip(this.classKey, it)) this.gear[slot] = it;
     }
     if (Array.isArray(p.waypoints)) for (const w of p.waypoints) if (typeof w === 'string') this.waypoints.add(w);
+    // Skill tree: re-derive a legal allocation (saves are not trusted).
+    this.skillTree = sanitizeAllocation(this.classKey, p.skillTree, this.level);
+    this.recomputeSkillBuild();
     this.recomputeStats();
     this.hp = this.maxHp;
   }
 
-  // Rebuild derived stats from base attributes + equipped gear, preserving the
-  // current HP fraction. Call after spending a point or changing equipment.
+  // Base/leveled attributes + gear + skill-tree stat nodes.
+  totalAttrsWithBuild() {
+    const a = totalAttrs(this.baseAttrs, this.gear);
+    const b = this.skillBuild.stat;
+    for (const k of STAT_KEYS) a[k] += b[k] || 0;
+    return a;
+  }
+
+  recomputeSkillBuild() { this.skillBuild = buildFromTree(this.classKey, this.skillTree); }
+
+  // The effective skill def for a slot (1-based), with tree upgrades/unlocks.
+  effSkill(slot) { return effectiveSkill(this.def, slot - 1, this.skillBuild); }
+
+  // Rebuild derived stats from base attributes + gear + skill tree, preserving
+  // the current HP fraction. Call after spending a point or changing equipment.
   recomputeStats() {
     const ratio = this.maxHp ? this.hp / this.maxHp : 1;
-    this.stats = new Stats(totalAttrs(this.baseAttrs, this.gear));
+    this.stats = new Stats(this.totalAttrsWithBuild());
     this.maxHp = this.stats.maxHp;
     this.hp = Math.min(this.maxHp, Math.max(1, Math.round(this.maxHp * ratio)));
+  }
+
+  // --- skill tree (server-authoritative; client requests, server validates) ---
+  spendSkill(nodeId) {
+    if (!canSpend(this.classKey, this.skillTree, this.level, nodeId)) return false;
+    this.skillTree[nodeId] = (this.skillTree[nodeId] || 0) + 1;
+    this.recomputeSkillBuild();
+    this.recomputeStats();
+    return true;
+  }
+  respecSkills() {
+    this.skillTree = {};
+    this.recomputeSkillBuild();
+    this.recomputeStats();
+    return true;
   }
 
   // --- inventory / equipment (server-authoritative) ---
@@ -202,6 +236,7 @@ export default class ServerPlayer {
   privateState() {
     const s = this.stats;
     return {
+      classKey: this.classKey, // so the inventory UI can gate equip by class
       level: this.level, xp: this.xp, xpToNext: this.xpToNext(), statPoints: this.statPoints,
       cd: { 1: +this.cooldowns[1].toFixed(2), 2: +this.cooldowns[2].toFixed(2), 3: +this.cooldowns[3].toFixed(2), 4: +this.cooldowns[4].toFixed(2), 5: +this.cooldowns[5].toFixed(2), 6: +this.cooldowns[6].toFixed(2) },
       stats: { STR: s.STR, DEX: s.DEX, INT: s.INT, VIT: s.VIT, AGI: s.AGI }, // total (base + gear)
@@ -209,6 +244,8 @@ export default class ServerPlayer {
       inventory: this.inventory,
       gear: this.gear,
       waypoints: [...this.waypoints],
+      skillTree: { ...this.skillTree },
+      skillPoints: availablePoints(this.classKey, this.level, this.skillTree),
     };
   }
 }
