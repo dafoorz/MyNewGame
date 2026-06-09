@@ -83,7 +83,13 @@ export default class OnlineScene extends Phaser.Scene {
       getZoneKey: () => this.curZone || 'town',
       getDiscovered: () => new Set((this.me && this.me.waypoints) || ['town']),
       getSeed: () => (this.net ? this.net.seed : 0),
-      onTravel: (id) => { if (this.net) this.net.sendMapTravel(id); },
+      onTravel: (id) => {
+        // Client-side hints (server enforces these authoritatively too).
+        const here = ZONES[this.curZone];
+        if (here && (here.dungeon || here.raid)) { this.showBanner("Can't travel inside a dungeon"); return; }
+        if (this.me && this.me.inCombat) { this.showBanner("Can't travel in combat"); return; }
+        if (this.net) this.net.sendMapTravel(id);
+      },
     });
     // Server announces shrine discovery — show a banner.
     if (this.net) this.net.on('waystone', (d) => { if (d && d.name) this.showBanner('Waystone discovered: ' + d.name); });

@@ -278,6 +278,15 @@ export default class GameScene extends Phaser.Scene {
   travelToWaystone(id) {
     const w = findWaystone(id, this.seed);
     if (!w || !this.discovered.has(id)) return;
+    const here = ZONES[this.zoneKey];
+    if (here && (here.dungeon || here.raid)) { // no fast-travel out of a dungeon/raid
+      this.spawnText(this.player.x, this.player.y - 64, "Can't travel inside a dungeon", '#ff7a7a');
+      return;
+    }
+    if (this.player.inCombat) {                 // no fast-travel during combat
+      this.spawnText(this.player.x, this.player.y - 64, "Can't travel in combat", '#ff7a7a');
+      return;
+    }
     if (w.zoneKey === this.zoneKey) {
       this.player.x = w.x; this.player.y = w.y;
       this.portalLock = true;
@@ -285,6 +294,8 @@ export default class GameScene extends Phaser.Scene {
     } else {
       this.loadZone(w.zoneKey, null, { x: w.x, y: w.y });
     }
+    this.player.hp = this.player.maxHp;         // travel restores full health
+    if (this.player.hpBar) this.player.hpBar.setValue(1);
   }
 
   spawnMobs(z, bounds) {
@@ -638,6 +649,7 @@ export default class GameScene extends Phaser.Scene {
   basicAttack() {
     if (!this.player.canBasicAttack()) return;
     this.player.startBasicCooldown();
+    this.player.enterCombat();
     if (this.basic.kind === 'melee') {
       this.spawnSwingArc(this.player, this.player.attackRange, 1.3);
       for (const e of this.enemies()) {
@@ -661,6 +673,7 @@ export default class GameScene extends Phaser.Scene {
     if (!def || !this.player.alive || this.player.isOnCooldown(slot)) return;
     this.castSkill(def);
     this.player.startCooldown(slot, def.cd);
+    this.player.enterCombat();
   }
 
   // The skill engine: interprets a class skill's `type`.

@@ -31,6 +31,7 @@ export default class Player {
     this.damageReduction = 0; // set by Shield Wall
     this.shieldTimer = 0;
     this.hitFlash = 0;
+    this.combatTimer = 0;     // >0 = in combat (set on hit/attack, decays over 5s)
 
     // Class buffs / states.
     this.damageMult = 1;     // temporary outgoing-damage buff
@@ -61,11 +62,16 @@ export default class Player {
 
   // --- combat ---
 
+  // Mark the player as "in combat" for the next 5s (attacking or being hit).
+  enterCombat() { this.combatTimer = 5; }
+  get inCombat() { return this.combatTimer > 0; }
+
   takeDamage(rawAmount) {
     if (!this.alive || this.invulnTimer > 0) return 0; // i-frames: dodge negates the hit
     const amount = Math.max(0, Math.round(rawAmount * (1 - this.damageReduction)));
     this.hp -= amount;
     this.hitFlash = 0.15;
+    if (amount > 0) this.enterCombat();
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
@@ -150,6 +156,7 @@ export default class Player {
   update(dt) {
     if (this.attackTimer > 0) this.attackTimer -= dt;
     if (this.hitFlash > 0) this.hitFlash -= dt;
+    if (this.combatTimer > 0) this.combatTimer -= dt;
     for (const k of Object.keys(this.cooldowns)) {
       if (this.cooldowns[k] > 0) this.cooldowns[k] -= dt;
     }
