@@ -9,6 +9,7 @@ export default class NetClient {
     this.code = null;
     this.youId = null;
     this.zoneName = '';
+    this.seed = 0;
     this.roster = [];
     this.snapshot = null;
     this.handlers = {}; // event -> fn
@@ -29,12 +30,13 @@ export default class NetClient {
     this.socket.on('disconnect', () => { this.connected = false; this._emit('disconnect'); });
 
     this.socket.on('party_joined', (d) => {
-      this.code = d.code; this.youId = d.youId; this.zoneName = d.zoneName; this.roster = d.roster;
+      this.code = d.code; this.youId = d.youId; this.zoneName = d.zoneName; this.roster = d.roster; this.seed = d.seed || 0;
       this._emit('party_joined', d);
     });
     this.socket.on('join_error', (d) => this._emit('join_error', d));
     this.socket.on('roster', (r) => { this.roster = r; this._emit('roster', r); });
     this.socket.on('snapshot', (s) => { this.snapshot = s; });
+    this.socket.on('waystone', (d) => this._emit('waystone', d));
   }
 
   on(event, fn) { this.handlers[event] = fn; }
@@ -50,6 +52,7 @@ export default class NetClient {
   sendEquip(itemId) { if (this.socket) this.socket.emit('equip', { itemId }); }
   sendUnequip(slot) { if (this.socket) this.socket.emit('unequip', { slot }); }
   sendDiscard(itemId) { if (this.socket) this.socket.emit('discard', { itemId }); }
+  sendMapTravel(waystone) { if (this.socket) this.socket.emit('map_travel', { waystone }); }
   sendSpendSkill(nodeId) { if (this.socket) this.socket.emit('spend_skill', { nodeId }); }
   sendRespecSkill() { if (this.socket) this.socket.emit('respec_skill'); }
 

@@ -1,4 +1,4 @@
-import { ZONES } from '../../src/world/zones.js';
+import { ZONES, zonePortals } from '../../src/world/zones.js';
 import Mob from './Mob.js';
 import Minion from './Minion.js';
 import Boss from './Boss.js';
@@ -10,9 +10,11 @@ import { rollDrop, rollItem } from '../../src/items.js';
 // the zone each tick and collects the resulting snapshot.
 
 export default class Zone {
-  constructor(key) {
+  constructor(key, seed = 0) {
     this.key = key;
     this.def = ZONES[key];
+    this.seed = seed;
+    this.portals = zonePortals(key, seed); // resolved (random portals get fixed spots)
     this.bounds = { w: this.def.size.w, h: this.def.size.h };
     this.players = [];        // set by Room each tick
     this.mobs = [];
@@ -26,8 +28,17 @@ export default class Zone {
     this.nextProjId = 1;
     this.nextMinionId = 1;
 
-    if (this.def.boss) { this.boss = new Boss(this.bounds, this.def.boss); this.aggro = new AggroTable(); this._bossWasAlive = true; this.bossResetTimer = 0; this.bossDmg = new Map(); this.bossFightStart = 0; }
-    else { this.boss = null; this.aggro = null; }
+    if (this.def.boss) {
+      this.boss = new Boss(this.bounds, this.def.boss); this.aggro = new AggroTable();
+      this._bossWasAlive = true; this.bossResetTimer = 0; this.bossDmg = new Map(); this.bossFightStart = 0;
+    } else if (this.def.raid) {
+      this.boss = null; this.aggro = null;
+      this._bossWasAlive = false; this.bossDmg = new Map(); this.bossFightStart = 0;
+      this.raidState = 'wave1';
+      this._raidSpawnWave(12);
+    } else {
+      this.boss = null; this.aggro = null;
+    }
 
     if (this.def.mobTypes) for (let i = 0; i < this.def.mobCount; i++) this.spawnMob();
   }
@@ -44,7 +55,7 @@ export default class Zone {
     for (let i = 0; i < 20; i++) {
       const x = 120 + Math.random() * (z.size.w - 240);
       const y = 120 + Math.random() * (z.size.h - 240);
-      if (!z.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 220)) return { x, y };
+      if (!this.portals.some((p) => Math.hypot(p.x - x, p.y - y) < 220)) return { x, y };
     }
     return { x: z.size.w / 2, y: 120 };
   }
@@ -69,8 +80,13 @@ export default class Zone {
       bounds: this.bounds,
       getCombatants: combatants,
       getTarget: () => this.aggro.getTarget(combatants()),
-      hit: (e, amount) => {
-        const dealt = e.takeDamage(amount);
+      hit: (e, amount, blockable) => {
+        let finalAmount = amount;
+        if (blockable && e.isBlocking) {
+          finalAmount = Math.max(1, Math.round(amount * 0.25));
+          this.addFx({ t: 'text', x: e.x, y: e.y - e.radius - 10, msg: 'BLOCKED!', color: '#4ad0ff' });
+        }
+        const dealt = e.takeDamage(finalAmount);
         this.addFx({ t: 'dmg', x: e.x, y: e.y - e.radius, amount: dealt, enemy: true });
         if (!e.alive) this.aggro.remove(e.id);
       },
@@ -154,10 +170,11 @@ export default class Zone {
     // boss — minions count as combatants so the boss can target/cleave them
     if (this.boss && this.boss.alive) {
       this.boss.update(dt, this.bossAdapter());
-    } else if (this.boss) {
+    } else if (this.boss && !this.def.raid) {
       if (this._bossWasAlive) { this._bossWasAlive = false; this.onBossDeath(); }
       if (this.bossResetTimer > 0) { this.bossResetTimer -= dt; if (this.bossResetTimer <= 0) this.resetBoss(); }
     }
+    if (this.def.raid) this._checkRaidProgress();
 
     this.updateDots(dt);
     this.updateProjectiles(dt);
@@ -261,6 +278,80 @@ export default class Zone {
   }
   resetBoss() { this.boss = new Boss(this.bounds, this.def.boss); this._bossWasAlive = true; this.addFx({ t: 'text', x: this.bounds.w / 2, y: this.bounds.h / 2, msg: `${this.boss.name} stirs again...`, color: '#ffd24a', big: true }); }
 
+  _raidSpawnWave(count) {
+    const z = this.def;
+    if (!z.mobTypes) return;
+    for (let i = 0; i < count; i++) {
+      const typeKey = z.mobTypes[Math.floor(Math.random() * z.mobTypes.length)];
+      const pos = this.randomPos();
+      this.mobs.push(new Mob(this.nextMobId++, typeKey, pos.x, pos.y, z.mobLevel, this.bounds));
+    }
+  }
+
+  _raidSpawnBoss(bossKey) {
+    this.boss = new Boss(this.bounds, bossKey);
+    this.aggro = new AggroTable();
+    this.bossDmg = new Map(); this.bossFightStart = 0;
+  }
+
+  _onRaidMiniBossDeath() {
+    if (!this.boss) return;
+    const loot = this.boss.cfg.loot, xp = this.boss.cfg.xp;
+    for (const p of this.players) {
+      const levels = p.addXp(xp);
+      if (levels > 0) { p.recalc(); p.hp = p.maxHp; this.addFx({ t: 'level', x: p.x, y: p.y - 46, level: p.level }); }
+    }
+    this.mobs = this.mobs.filter((m) => !m.summoned);
+    this.boss = null; this.aggro = null;
+  }
+
+  _checkRaidProgress() {
+    const liveMobs = this.mobs.filter((m) => !m.summoned);
+    const bossAlive = this.boss && this.boss.alive;
+    if (this.raidState === 'wave1' && liveMobs.length === 0) {
+      this.raidState = 'boss1';
+      this._raidSpawnBoss('guardian');
+      this.addFx({ t: 'text', x: this.bounds.w/2, y: this.bounds.h/2 - 80, msg: 'BOSS: Guardian of the Bastion!', color: '#8ab8e0', big: true });
+    } else if (this.raidState === 'boss1' && this.boss && !bossAlive) {
+      this._awardRaidLoot();
+      this.raidState = 'wave2';
+      this._raidSpawnWave(8);
+      this.addFx({ t: 'text', x: this.bounds.w/2, y: this.bounds.h/2 - 80, msg: 'More enemies incoming!', color: '#ffd24a', big: true });
+    } else if (this.raidState === 'wave2' && liveMobs.length === 0) {
+      this.raidState = 'boss2';
+      this._raidSpawnBoss('warden');
+      this.addFx({ t: 'text', x: this.bounds.w/2, y: this.bounds.h/2 - 80, msg: 'BOSS: Warden of Chains!', color: '#d4a020', big: true });
+    } else if (this.raidState === 'boss2' && this.boss && !bossAlive) {
+      this._awardRaidLoot();
+      this.raidState = 'final';
+      this._raidSpawnBoss('worldbreaker');
+      this.addFx({ t: 'text', x: this.bounds.w/2, y: this.bounds.h/2 - 80, msg: 'THE WORLDBREAKER AWAKENS!', color: '#d020e0', big: true });
+    } else if (this.raidState === 'final' && this.boss && !bossAlive) {
+      this._awardRaidLoot();
+      this.raidState = 'done';
+      this.addFx({ t: 'text', x: this.bounds.w/2, y: this.bounds.h/2, msg: 'RAID COMPLETE!', color: '#7CFC9A', big: true });
+    }
+  }
+
+  _awardRaidLoot() {
+    if (!this.boss) return;
+    const loot = this.boss.cfg.loot, xp = this.boss.cfg.xp;
+    for (const p of this.players) {
+      const levels = p.addXp(xp);
+      if (levels > 0) { p.recalc(); p.hp = p.maxHp; this.addFx({ t: 'level', x: p.x, y: p.y - 46, level: p.level }); }
+      this.addFx({ t: 'xp', x: p.x, y: p.y - 20, amount: xp });
+      let full = false;
+      for (let i = 0; i < loot.count; i++) {
+        const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
+        if (p.addItem(drop)) this.addFx({ t: 'loot', x: p.x + (i - (loot.count-1)/2)*24, y: p.y - 34, rarity: drop.rarity, name: drop.name });
+        else full = true;
+      }
+      if (full) this.addFx({ t: 'text', x: p.x, y: p.y - 54, msg: 'Backpack full!', color: '#ff7a7a' });
+    }
+    this.mobs = this.mobs.filter((m) => !m.summoned);
+    this.boss = null; this.aggro = null;
+  }
+
   playerById(id) { return this.players.find((p) => p.id === id) || null; }
 
   bossDpsRows() {
@@ -277,6 +368,7 @@ export default class Zone {
       boss: this.boss ? { ...this.boss.snapshot(), dps: this.bossDpsRows() } : null,
       projectiles: this.projectiles.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), r: p.r, color: p.color })),
       fx: this.fx,
+      raidState: this.raidState || null,
     };
   }
 }

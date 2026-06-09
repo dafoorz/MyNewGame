@@ -116,5 +116,13 @@ for (const cls of Object.values(CLASSES)) {
   cls.skills.push({ key: 'E', name: 'Dodge', cd: 10, color: '#5dd9ff', type: 'dodge', distance: 150, iframe: 0.45 });
 }
 
+// Universal Block: every class gets a 6th skill — a brief parry window that
+// reduces yellow (blockable) boss attack damage by 75%. Red attacks ignore it.
+// Warriors can use it nearly every attack cycle (1s CD); others have longer CDs.
+const BLOCK_CDS = { warrior: 1, rogue: 2.5, archer: 3.5, healer: 4.5, mage: 5, necromancer: 4 };
+for (const [key, cls] of Object.entries(CLASSES)) {
+  cls.skills.push({ key: 'R', name: 'Block', cd: BLOCK_CDS[key] ?? 4, color: '#6cd0ff', type: 'block', duration: 0.8 });
+}
+
 export const CLASS_ORDER = ['warrior', 'mage', 'rogue', 'archer', 'healer', 'necromancer'];
 export const DEFAULT_CLASS = 'warrior';

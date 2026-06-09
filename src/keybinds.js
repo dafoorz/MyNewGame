@@ -9,6 +9,7 @@ export const DEFAULT_BINDS = {
   attack: 'Space',
   skill1: 'Digit1', skill2: 'Digit2', skill3: 'Digit3', skill4: 'Digit4', skill5: 'KeyE',
   aim: 'KeyQ', char: 'KeyC', inv: 'KeyI', tree: 'KeyK',
+  block: 'KeyR', map: 'KeyM',
 };
 
 // Display order + labels for the settings panel.
@@ -17,6 +18,7 @@ export const BIND_ROWS = [
   ['attack', 'Basic Attack'],
   ['skill1', 'Skill 1'], ['skill2', 'Skill 2'], ['skill3', 'Skill 3'], ['skill4', 'Skill 4'], ['skill5', 'Dodge'],
   ['aim', 'Toggle Aim'], ['char', 'Character Panel'], ['inv', 'Inventory'], ['tree', 'Skill Tree'],
+  ['block', 'Block / Parry'], ['map', 'World Map'],
 ];
 
 export function loadKeybinds() {

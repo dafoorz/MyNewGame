@@ -27,20 +27,22 @@ export default class Boss {
 
     this.hpBar = new HealthBar(scene, CONFIG.width / 2, 40, 620, 22, { depth: 60, fixed: true });
     this.hpText = scene.add.text(CONFIG.width / 2, 40, '', { fontFamily: 'Segoe UI, sans-serif', fontSize: '13px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
-    this.nameText = scene.add.text(CONFIG.width / 2, 18, this.name, { fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', color: '#ffd24a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
+    this.nameText = scene.add.text(CONFIG.width / 2, 18, this.core.name, { fontFamily: 'Segoe UI, sans-serif', fontSize: '15px', color: '#ffd24a', fontStyle: 'bold' }).setOrigin(0.5).setDepth(61).setScrollFactor(0);
     this.dpsText = scene.add.text(CONFIG.width / 2, 56, '', { fontFamily: 'Consolas, monospace', fontSize: '12px', color: '#ff9a5a', fontStyle: 'bold', align: 'center', lineSpacing: 2, stroke: '#000', strokeThickness: 3 }).setOrigin(0.5, 0).setDepth(61).setScrollFactor(0);
   }
 
   // --- expose core state so existing GameScene code (enemies(), aim, etc.) works ---
   get x() { return this.core.x; }
   get y() { return this.core.y; }
-  get radius() { return this.core.radius; }
   get alive() { return this.core.alive; }
-  get hp() { return this.core.hp; }
-  get maxHp() { return this.core.maxHp; }
   get name() { return this.core.name; }
-  get cfg() { return this.core.cfg; }
+  get radius() { return this.core.radius; }
+  get maxHp() { return this.core.maxHp; }
+  get hp() { return this.core.hp; }
+  get facing() { return this.core.facing; }
   get telegraph() { return this.core.telegraph; }
+  get state() { return this.core.state; }
+  get cfg() { return this.core.cfg; }
 
   takeDamage(amount, source = 'You') {
     if (!this.core.alive) return;
@@ -50,6 +52,12 @@ export default class Boss {
   }
 
   update(dt, adapter) {
+    if (!this.alive) {
+      this.telegraphGfx.clear();
+      this.draw();
+      this.updateHud();
+      return;
+    }
     this.core.update(dt, adapter);
     this.draw();
     this.drawTelegraph();
@@ -104,7 +112,9 @@ export default class Boss {
 // has an equivalent inline for snapshot-driven rendering.
 export function drawTelegraph(g, t, progress) {
   const alpha = 0.25 + (progress || 0) * 0.4;
-  const C = CONFIG.colors.telegraph;
+  // Yellow = blockable (can be partially blocked), Red = unblockable (must dodge)
+  const isBlockable = t.blockable !== false && t.type !== 'safezone';
+  const C = t.type === 'summon' ? 0xc06cff : (isBlockable ? 0xffe066 : 0xff3b3b);
   if (t.type === 'cleave') {
     const steps = 24, start = t.facing - t.halfAngle, end = t.facing + t.halfAngle;
     g.fillStyle(C, alpha); g.lineStyle(3, C, 0.9);

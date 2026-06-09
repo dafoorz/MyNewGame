@@ -1,7 +1,7 @@
 import { CONFIG } from '../config.js';
 import { CLASSES } from '../classes/classes.js';
 import { Stats } from '../stats.js';
-import { ZONES } from '../world/zones.js';
+import { ZONES, zonePortals, zoneWaystones } from '../world/zones.js';
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
 import { saveProgress } from '../progress.js';
@@ -9,6 +9,7 @@ import SettingsPanel from '../ui/SettingsPanel.js';
 import InventoryPanel from '../ui/InventoryPanel.js';
 import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
+import MapPanel from '../ui/MapPanel.js';
 import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
 import { applyIso, project, unproject, dirToWorld, projectDir, bodyDepth, zoneBounds } from '../iso.js';
 import { drawHumanoid, drawCreature, drawBoss, drawMinion } from '../sprites.js';
@@ -38,15 +39,18 @@ export default class OnlineScene extends Phaser.Scene {
     this.me = null;
 
     // Iso world layer (see src/iso.js): the FLOOR and ground decals (zone grid,
-    // portals, boss telegraphs) live here and inherit the iso transform. Bodies
-    // and projectiles are upright billboards in scene space at project(x,y).
+    // portals, waystones, boss telegraphs) live here and inherit the iso transform.
+    // Bodies and projectiles are upright billboards in scene space at project(x,y).
     this.world = applyIso(this.add.container(0, 0));
     this.zoneGfx = this.add.graphics(); this.zoneGfx.depth = -1e7; this.world.add(this.zoneGfx);
     this.portalGfx = this.add.graphics(); this.portalGfx.depth = -9e6; this.world.add(this.portalGfx);
+    this.waystoneGfx = this.add.graphics(); this.waystoneGfx.depth = -9e6 + 1; this.world.add(this.waystoneGfx);
     this.telegraphGfx = this.add.graphics(); this.telegraphGfx.depth = -1000; this.world.add(this.telegraphGfx);
     this.bossGfx = this.add.graphics().setDepth(20);   // boss billboard (scene space)
     this.projGfx = this.add.graphics().setDepth(53);   // projectiles (scene space)
     this.portalLabels = [];
+    this.waystoneLabels = [];
+    this._wpCount = -1; // track discovered count to know when to redraw shrines
 
     this.players = new Map();  // id -> render bundle
     this.mobsR = new Map();    // id -> render bundle
@@ -75,6 +79,14 @@ export default class OnlineScene extends Phaser.Scene {
     this.settings = new SettingsPanel(this, {
       onMainMenu: () => { if (this.net) this.net.close(); this.scene.start('LobbyScene'); },
     });
+    this.mapPanel = new MapPanel(this, {
+      getZoneKey: () => this.curZone || 'town',
+      getDiscovered: () => new Set((this.me && this.me.waypoints) || ['town']),
+      getSeed: () => (this.net ? this.net.seed : 0),
+      onTravel: (id) => { if (this.net) this.net.sendMapTravel(id); },
+    });
+    // Server announces shrine discovery — show a banner.
+    if (this.net) this.net.on('waystone', (d) => { if (d && d.name) this.showBanner('Waystone discovered: ' + d.name); });
 
     this.inputAcc = 0;
     this.move = { x: 0, y: 0 };
@@ -95,20 +107,49 @@ export default class OnlineScene extends Phaser.Scene {
     for (let x = 80; x < z.size.w; x += 80) g.lineBetween(x, 0, x, z.size.h);
     for (let y = 80; y < z.size.h; y += 80) g.lineBetween(0, y, z.size.w, y);
 
+    const seed = this.net ? this.net.seed : 0;
     const pg = this.portalGfx; pg.clear();
     this.portalLabels.forEach((l) => l.destroy()); this.portalLabels = [];
-    for (const p of z.portals) {
-      pg.fillStyle(0x6cd0ff, 0.25); pg.fillCircle(p.x, p.y, 40);
-      pg.lineStyle(3, 0x6cd0ff, 0.9); pg.strokeCircle(p.x, p.y, 40);
+    for (const p of zonePortals(key, seed)) {
+      const isDungeon = ZONES[p.to] && (ZONES[p.to].dungeon || ZONES[p.to].raid);
+      const col = ZONES[p.to] && ZONES[p.to].raid ? 0xc06cff : (isDungeon ? 0xff9a5a : 0x6cd0ff);
+      pg.fillStyle(col, 0.25); pg.fillCircle(p.x, p.y, 40);
+      pg.lineStyle(3, col, 0.9); pg.strokeCircle(p.x, p.y, 40);
       const lp = project(p.x, p.y);
       this.portalLabels.push(this.add.text(lp.x, lp.y - 56, p.label, { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#bfe9ff', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(40));
     }
 
-    // Banner.
-    const t = this.add.text(CONFIG.width / 2, CONFIG.height / 2 - 120, z.name, { fontFamily: 'Segoe UI', fontSize: '34px', fontStyle: 'bold', color: '#fff', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(110).setScrollFactor(0).setAlpha(0);
-    this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 1100, onComplete: () => t.destroy() });
+    this.waystones = zoneWaystones(key, seed);
+    this._wpCount = -1; // force shrine redraw for the new zone
+    this.drawWaystones();
 
+    this.showBanner(z.name);
     this.localPos = null; // re-anchor to server pos after teleport
+  }
+
+  // Shrines: cyan obelisk once discovered (server-tracked), dim & locked until then.
+  drawWaystones() {
+    const g = this.waystoneGfx; g.clear();
+    this.waystoneLabels.forEach((l) => l.destroy()); this.waystoneLabels = [];
+    const known = new Set((this.me && this.me.waypoints) || ['town']);
+    for (const w of (this.waystones || [])) {
+      const got = known.has(w.id);
+      const col = got ? 0x4ad0ff : 0x55607a;
+      g.fillStyle(col, got ? 0.22 : 0.12); g.fillCircle(w.x, w.y, 26);
+      g.lineStyle(3, col, got ? 0.95 : 0.6); g.strokeCircle(w.x, w.y, 26);
+      g.fillStyle(col, got ? 0.9 : 0.5); g.fillRect(w.x - 5, w.y - 18, 10, 30);
+      const lp = project(w.x, w.y);
+      this.waystoneLabels.push(this.add.text(lp.x, lp.y - 40, (got ? '◈ ' : '🔒 ') + w.name, {
+        fontFamily: 'Segoe UI', fontSize: '11px', fontStyle: 'bold',
+        color: got ? '#bff0ff' : '#8b93ad', stroke: '#06121c', strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(40));
+    }
+    this._wpCount = known.size;
+  }
+
+  showBanner(text) {
+    const t = this.add.text(CONFIG.width / 2, CONFIG.height / 2 - 120, text, { fontFamily: 'Segoe UI', fontSize: '30px', fontStyle: 'bold', color: '#fff', stroke: '#000', strokeThickness: 5 }).setOrigin(0.5).setDepth(110).setScrollFactor(0).setAlpha(0);
+    this.tweens.add({ targets: t, alpha: 1, duration: 300, yoyo: true, hold: 1100, onComplete: () => t.destroy() });
   }
 
   // ----------------------------------------------------------------- input ---
@@ -116,7 +157,7 @@ export default class OnlineScene extends Phaser.Scene {
     this.input.addPointer(2);
     this.joy = { active: false, id: -1, baseX: 0, baseY: 0 };
     this.held = new Set();
-    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,C,I,K');
+    this.input.keyboard.addCapture('SPACE,ONE,TWO,THREE,FOUR,Q,E,R,C,I,K,M');
 
     this.input.on('pointerdown', (p) => {
       if (this.isOverUI(p)) return;
@@ -143,6 +184,8 @@ export default class OnlineScene extends Phaser.Scene {
         case 'aim': this.toggleAutoAim(); break;
         case 'char': this.toggleCharPanel(); break;
         case 'inv': this.inventory.toggle(); break;
+        case 'block': this.castSlot(6); break;
+        case 'map': this.mapPanel.toggle(this.curZone); break;
         case 'tree': this.treePanel.toggle(); break;
       }
     });
@@ -160,6 +203,8 @@ export default class OnlineScene extends Phaser.Scene {
     if (this.aimBtn && Math.hypot(p.x - this.aimBtn.x, p.y - this.aimBtn.y) <= this.aimBtn.r) return true;
     if (this.settingsBtn && Math.hypot(p.x - this.settingsBtn.x, p.y - this.settingsBtn.y) <= this.settingsBtn.r) return true;
     if (this.invBtn && Math.hypot(p.x - this.invBtn.x, p.y - this.invBtn.y) <= this.invBtn.r) return true;
+    if (this.mapPanel && this.mapPanel.contains(p.x, p.y)) return true;
+    if (this.mapBtn && Math.hypot(p.x - this.mapBtn.x, p.y - this.mapBtn.y) <= this.mapBtn.r) return true;
     if (this.treeBtn && Math.hypot(p.x - this.treeBtn.x, p.y - this.treeBtn.y) <= this.treeBtn.r) return true;
     return false;
   }
@@ -175,12 +220,14 @@ export default class OnlineScene extends Phaser.Scene {
     if (!snap) return;
     if (snap.zoneKey !== this.curZone) this.onZoneChange(snap.zoneKey);
     this.me = snap.me;
+    // Re-light shrines when the server reports a newly discovered one.
+    if (this.me && this.me.waypoints && this.me.waypoints.length !== this._wpCount) this.drawWaystones();
 
     // Persist this class's progress on this device (throttled).
     this._saveAcc = (this._saveAcc || 0) + dt;
     if (this._saveAcc >= 2 && this.me && this.me.stats) {
       this._saveAcc = 0;
-      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, skillTree: this.me.skillTree });
+      saveProgress(this.classKey, { level: this.me.level, xp: this.me.xp, statPoints: this.me.statPoints, stats: this.me.baseStats || this.me.stats, inventory: this.me.inventory, gear: this.me.gear, skillTree: this.me.skillTree, waypoints: this.me.waypoints });
     }
     // Recompute effective skills (tree upgrades/unlocks) only when the allocation
     // changes; refresh the open panels only on change (rebuilding every frame
@@ -291,6 +338,7 @@ export default class OnlineScene extends Phaser.Scene {
         if (p.buff) rings.push({ color: 0xffe066, alpha: 0.7, pad: 8 });
         if (p.shield) rings.push({ color: 0x66ccff, alpha: 0.9, w: 3, pad: 11 });
         if (p.invuln) rings.push({ color: 0x5dd9ff, alpha: 0.9, w: 3, pad: 14 });
+        if (p.blocking) rings.push({ color: 0x4ad0ff, alpha: 0.95, w: 4, pad: 17 });
         const fd = projectDir(Math.cos(facing), Math.sin(facing));
         drawHumanoid(g, sp.x, sp.y, r, e.color, { faceDx: fd.x, faceDy: fd.y, rings });
         e.label.setText(`${isMe ? p.name + ' (you)' : p.name}  Lv${p.level}`);
@@ -353,9 +401,11 @@ export default class OnlineScene extends Phaser.Scene {
   }
 
   // Snapshot-driven telegraph rendering (mirrors the solo drawTelegraph helper).
+  // Yellow = blockable (can be partially blocked), Red = unblockable (must dodge).
   drawBossTelegraph(tg, t) {
     const alpha = 0.25 + (t.progress || 0) * 0.4;
-    const C = CONFIG.colors.telegraph;
+    const isBlockable = t.blockable !== false && t.type !== 'safezone';
+    const C = t.type === 'summon' ? 0xc06cff : (isBlockable ? 0xffe066 : 0xff3b3b);
     if (t.type === 'cleave') {
       const steps = 24, start = t.facing - t.halfAngle, end = t.facing + t.halfAngle;
       tg.fillStyle(C, alpha); tg.lineStyle(3, C, 0.9);
@@ -450,7 +500,15 @@ export default class OnlineScene extends Phaser.Scene {
     this.add.text(invX, invY, 'I', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#8bd96a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     invBg.on('pointerdown', () => this.inventory.toggle()); this.invBtn = { x: invX, y: invY, r: 22 };
 
-    const trX = CONFIG.width - 44, trY = 230;
+    const mapX = CONFIG.width - 44, mapY = 230;
+    const mapBg = this.add.circle(mapX, mapY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0x6cd0ff, 0.8)
+      .setDepth(70).setScrollFactor(0).setInteractive();
+    this.add.text(mapX, mapY, 'M', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#6cd0ff' })
+      .setOrigin(0.5).setDepth(71).setScrollFactor(0);
+    mapBg.on('pointerdown', () => this.mapPanel.toggle(this.curZone));
+    this.mapBtn = { x: mapX, y: mapY, r: 22 };
+
+    const trX = CONFIG.width - 44, trY = 280;
     const trBg = this.add.circle(trX, trY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xffd24a, 0.8).setDepth(70).setScrollFactor(0).setInteractive();
     this.treeBadge = this.add.text(trX, trY, 'K', { fontFamily: 'Segoe UI', fontSize: '15px', fontStyle: 'bold', color: '#ffd24a' }).setOrigin(0.5).setDepth(71).setScrollFactor(0);
     trBg.on('pointerdown', () => this.treePanel.toggle()); this.treeBtn = { x: trX, y: trY, r: 22 };

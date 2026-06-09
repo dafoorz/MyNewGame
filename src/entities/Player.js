@@ -40,9 +40,11 @@ export default class Player {
     this.stealthTimer = 0;
     this.nextHitCrit = 0;    // if >0, next damaging hit is a guaranteed crit at this multiplier
     this.invulnTimer = 0;    // i-frames during a Dodge roll: takes no damage while > 0
+    this.isBlocking = false;
+    this.blockTimer = 0;
 
-    // Skill cooldowns (seconds remaining), keyed by slot 1-5.
-    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    // Skill cooldowns (seconds remaining), keyed by slot 1-6.
+    this.cooldowns = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
 
     // --- visuals ---
     this.gfx = scene.add.graphics().setDepth(10);
@@ -90,6 +92,11 @@ export default class Player {
   applyShield(reduction, seconds) {
     this.damageReduction = reduction;
     this.shieldTimer = seconds;
+  }
+
+  applyBlock(duration) {
+    this.isBlocking = true;
+    this.blockTimer = duration;
   }
 
   heal(amount) {
@@ -159,6 +166,7 @@ export default class Player {
       if (this.stealthTimer <= 0) this.stealth = false;
     }
     if (this.invulnTimer > 0) this.invulnTimer -= dt;
+    if (this.blockTimer > 0) { this.blockTimer -= dt; if (this.blockTimer <= 0) this.isBlocking = false; }
     this.draw();
   }
 
@@ -182,6 +190,7 @@ export default class Player {
     if (this.buffTimer > 0) rings.push({ color: 0xffe066, alpha: 0.7, pad: 8 });
     if (this.shieldTimer > 0) rings.push({ color: 0x66ccff, alpha: 0.9, w: 3, pad: 11 });
     if (this.invulnTimer > 0) rings.push({ color: 0x5dd9ff, alpha: 0.9, w: 3, pad: 14 });
+    if (this.isBlocking) rings.push({ color: 0x4ad0ff, alpha: 0.95, w: 4, pad: 17 });
     const fd = projectDir(Math.cos(this.facing), Math.sin(this.facing));
     drawHumanoid(g, sp.x, sp.y, r, this.hitFlash > 0 ? 0xffffff : this.color, {
       alpha: this.stealth ? 0.4 : 1, faceDx: fd.x, faceDy: fd.y, rings,

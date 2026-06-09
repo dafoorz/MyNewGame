@@ -113,15 +113,15 @@ export default class BossCore {
 
     if (atk.type === 'cleave') {
       this.faceTarget(target);
-      this.telegraph = { type: 'cleave', x: this.x, y: this.y, facing: this.facing, range: atk.range, halfAngle: atk.halfAngle };
+      this.telegraph = { type: 'cleave', x: this.x, y: this.y, facing: this.facing, range: atk.range, halfAngle: atk.halfAngle, blockable: atk.blockable !== false };
     } else if (atk.type === 'aoe') {
       const c = this.randomCombatant() || target;
-      this.telegraph = { type: 'aoe', x: c ? c.x : this.x, y: c ? c.y : this.y, radius: atk.radius };
+      this.telegraph = { type: 'aoe', x: c ? c.x : this.x, y: c ? c.y : this.y, radius: atk.radius, blockable: atk.blockable !== false };
     } else if (atk.type === 'charge') {
       this.faceTarget(target);
-      this.telegraph = { type: 'charge', x: this.x, y: this.y, facing: this.facing, length: atk.length, width: atk.width };
+      this.telegraph = { type: 'charge', x: this.x, y: this.y, facing: this.facing, length: atk.length, width: atk.width, blockable: atk.blockable !== false };
     } else if (atk.type === 'summon') {
-      this.telegraph = { type: 'summon', x: this.x, y: this.y, radius: atk.radius || 80 };
+      this.telegraph = { type: 'summon', x: this.x, y: this.y, radius: atk.radius || 80, blockable: atk.blockable !== false };
     } else if (atk.type === 'safezone') {
       const m = 120;
       this.telegraph = {
@@ -129,6 +129,7 @@ export default class BossCore {
         x: m + Math.random() * (b.w - 2 * m),
         y: m + Math.random() * (b.h - 2 * m),
         radius: atk.safeRadius, bw: b.w, bh: b.h,
+        blockable: atk.blockable !== false,
       };
     }
   }
@@ -153,14 +154,14 @@ export default class BossCore {
       for (const p of combs) {
         if (!p.alive) continue;
         const dx = p.x - tg.x, dy = p.y - tg.y;
-        if (Math.hypot(dx, dy) <= tg.range + p.radius && Math.abs(wrapAngle(Math.atan2(dy, dx) - tg.facing)) <= tg.halfAngle) a.hit(p, dmg);
+        if (Math.hypot(dx, dy) <= tg.range + p.radius && Math.abs(wrapAngle(Math.atan2(dy, dx) - tg.facing)) <= tg.halfAngle) a.hit(p, dmg, atk.blockable !== false);
       }
     } else if (atk.type === 'aoe') {
-      for (const p of combs) if (p.alive && dist(p.x, p.y, tg.x, tg.y) <= tg.radius + p.radius) a.hit(p, dmg);
+      for (const p of combs) if (p.alive && dist(p.x, p.y, tg.x, tg.y) <= tg.radius + p.radius) a.hit(p, dmg, atk.blockable !== false);
     } else if (atk.type === 'charge') {
       const ex = tg.x + Math.cos(tg.facing) * tg.length;
       const ey = tg.y + Math.sin(tg.facing) * tg.length;
-      for (const p of combs) if (p.alive && this.distToSegment(p.x, p.y, tg.x, tg.y, ex, ey) <= tg.width / 2 + p.radius) a.hit(p, dmg);
+      for (const p of combs) if (p.alive && this.distToSegment(p.x, p.y, tg.x, tg.y, ex, ey) <= tg.width / 2 + p.radius) a.hit(p, dmg, atk.blockable !== false);
       this.x = clamp(ex, this.radius, this.bounds.w - this.radius);
       this.y = clamp(ey, this.radius, this.bounds.h - this.radius);
     } else if (atk.type === 'summon') {
@@ -173,7 +174,7 @@ export default class BossCore {
       }
       a.addFx({ t: 'text', x: this.x, y: this.y - this.radius - 22, msg: 'SUMMON!', color: '#c06cff' });
     } else if (atk.type === 'safezone') {
-      for (const p of combs) if (p.alive && dist(p.x, p.y, tg.x, tg.y) > tg.radius + p.radius) a.hit(p, dmg);
+      for (const p of combs) if (p.alive && dist(p.x, p.y, tg.x, tg.y) > tg.radius + p.radius) a.hit(p, dmg, atk.blockable !== false);
     }
   }
 
@@ -218,6 +219,7 @@ export default class BossCore {
       facing: tg.facing != null ? +tg.facing.toFixed(3) : 0,
       range: tg.range || 0, halfAngle: tg.halfAngle || 0, radius: tg.radius || 0,
       length: tg.length || 0, width: tg.width || 0, bw: tg.bw || 0, bh: tg.bh || 0,
+      blockable: tg.blockable !== false,
       progress: this.progress(),
     };
   }
