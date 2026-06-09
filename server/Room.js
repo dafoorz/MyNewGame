@@ -103,21 +103,27 @@ export default class Room {
   respecSkill(id) { const p = this.players.get(id); if (p) p.respecSkills(); }
 
   // Fast-travel to a previously discovered waystone (validated server-side).
+  // Blocked inside dungeons/raids and while in combat; heals to full on arrival.
   mapTravel(id, waystoneId) {
     const p = this.players.get(id);
     if (!p || !p.alive) return;
     if (!p.waypoints.has(waystoneId)) return;        // must be discovered first
+    const here = ZONES[p.zoneKey];
+    if (here && (here.dungeon || here.raid)) return; // no fast-travel out of a dungeon/raid
+    if (p.inCombat) return;                          // no fast-travel during combat
     const w = findWaystone(waystoneId, this.seed);
     if (!w) return;
     const dest = ZONES[w.zoneKey];
     if (!dest || dest.dungeon || dest.raid) return;  // never land inside a dungeon/raid
     this.movePlayerToZone(p, w.zoneKey, null, { x: w.x, y: w.y });
+    p.hp = p.maxHp;                                  // travel restores full health
   }
 
   doBasic(id) {
     const p = this.players.get(id);
     if (!p || !p.alive || p.attackTimer > 0) return;
     p.attackTimer = p.stats.attackInterval;
+    p.enterCombat();
     const zone = this.getZone(p.zoneKey);
     zone.players = this.playersInZone(p.zoneKey);
     const b = p.def.basic;
@@ -130,6 +136,7 @@ export default class Room {
     if (!p || !p.alive) return;
     const def = p.effSkill(slot); // effective: skill-tree upgrades/unlocks applied
     if (!def || p.cooldowns[slot] > 0) return;
+    p.enterCombat();
     const zone = this.getZone(p.zoneKey);
     zone.players = this.playersInZone(p.zoneKey);
     p.aimX = typeof aimX === 'number' ? aimX : null;

@@ -68,6 +68,20 @@ a.emit('map_travel', { waystone: 'town' });        // discovered -> allowed
 const traveled = await waitFor(() => aSnap.zoneKey === 'town', 3000);
 if (!traveled) fail('fast-travel to a discovered waystone failed');
 console.log('  fast-traveled to town via waystone');
+
+// Combat lock: attacking puts the tank in combat; travel must be refused until
+// 5s pass with no attack/hit. (Tank is safe in town, so this is deterministic.)
+a.emit('basic');
+const inCombat = await waitFor(() => aSnap.me && aSnap.me.inCombat === true, 1500);
+if (!inCombat) fail('attacking did not flag the player as in-combat');
+a.emit('map_travel', { waystone: 'forest_entry' }); // in combat -> must be ignored
+await sleep(200);
+if (aSnap.zoneKey !== 'town') fail('fast-travel should be blocked while in combat');
+console.log('  travel correctly blocked while in combat');
+const leftCombat = await waitFor(() => aSnap.me && aSnap.me.inCombat === false, 7000);
+if (!leftCombat) fail('player did not leave combat after 5s');
+console.log('  left combat after cooldown');
+
 // Walk back to the forest so the rest of the test runs there.
 const back = setInterval(() => steer(aSnap, a, 'Tank', FX, FY), 80);
 await waitFor(() => aSnap.zoneKey === 'forest', 9000);

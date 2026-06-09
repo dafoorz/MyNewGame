@@ -50,9 +50,14 @@ export default class ServerPlayer {
 
     this.waypoints = new Set(['town']); // discovered fast-travel shrines
     this.portalLockId = null;           // suppress re-triggering the waystone we arrived on
+    this.combatTimer = 0;               // >0 = in combat (set on hit/attack, decays over 5s)
 
     this.input = { mx: 0, my: 0, facing: this.facing };
   }
+
+  // Mark the player as "in combat" for the next 5s (attacking or being hit).
+  enterCombat() { this.combatTimer = 5; }
+  get inCombat() { return this.combatTimer > 0; }
 
   setInput(mx, my, facing) {
     const len = Math.hypot(mx, my);
@@ -64,6 +69,7 @@ export default class ServerPlayer {
   takeDamage(raw) {
     if (!this.alive || this.invulnTimer > 0) return 0; // i-frames: dodge negates the hit
     const amount = Math.max(0, Math.round(raw * (1 - this.damageReduction)));
+    if (amount > 0) this.enterCombat();
     this.hp -= amount;
     if (this.hp <= 0) { this.hp = 0; this.alive = false; this.deadTimer = 5; }
     return amount;
@@ -203,6 +209,7 @@ export default class ServerPlayer {
     if (this.buffTimer > 0) { this.buffTimer -= dt; if (this.buffTimer <= 0) { this.damageMult = 1; this.speedMult = 1; } }
     if (this.invulnTimer > 0) this.invulnTimer -= dt;
     if (this.blockTimer > 0) { this.blockTimer -= dt; if (this.blockTimer <= 0) this.isBlocking = false; }
+    if (this.combatTimer > 0) this.combatTimer -= dt;
 
     if (this.alive && (this.input.mx !== 0 || this.input.my !== 0)) {
       const speed = this.stats.moveSpeed * this.speedMult;
@@ -244,6 +251,7 @@ export default class ServerPlayer {
       inventory: this.inventory,
       gear: this.gear,
       waypoints: [...this.waypoints],
+      inCombat: this.inCombat,
       skillTree: { ...this.skillTree },
       skillPoints: availablePoints(this.classKey, this.level, this.skillTree),
     };
