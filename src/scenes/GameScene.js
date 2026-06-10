@@ -14,6 +14,7 @@ import InventoryPanel from '../ui/InventoryPanel.js';
 import MapPanel from '../ui/MapPanel.js';
 import SkillTreePanel from '../ui/SkillTreePanel.js';
 import ShopPanel from '../ui/ShopPanel.js';
+import MiniMap from '../ui/MiniMap.js';
 import { buildFromTree, effectiveSkills, sanitizeAllocation, availablePoints, canSpend } from '../skilltree.js';
 import {
   STAT_KEYS, EQUIP_SLOTS, INV_CAP, emptyGear, totalAttrs, canEquip, sanitizeItem,
@@ -150,6 +151,8 @@ export default class GameScene extends Phaser.Scene {
       onBuy: (slot, tier) => this.buyGear(slot, tier),
       onUpgrade: (slot) => this.upgradeGear(slot),
     });
+
+    this.miniMap = new MiniMap(this);
 
     this.loadZone(START_ZONE, null);
   }
@@ -1409,6 +1412,17 @@ export default class GameScene extends Phaser.Scene {
       sb.overlay.height = sb.boxW * Phaser.Math.Clamp(this.player.cooldowns[sb.slot] / sb.def.cd, 0, 1);
     }
     if (this.charPanelOpen) this.refreshCharPanel();
+
+    if (this.miniMap) {
+      this.miniMap.update({
+        bounds: this.bounds,
+        player: { x: this.player.x, y: this.player.y },
+        mobs: this.mobs,
+        boss: this.boss,
+        portals: this.portals,
+        waystones: this.waystones,
+      });
+    }
   }
 
   // ======================================================= EFFECTS / FX =====

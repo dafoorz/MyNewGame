@@ -11,6 +11,7 @@ import SkillTreePanel from '../ui/SkillTreePanel.js';
 import { rarityColor } from '../items.js';
 import MapPanel from '../ui/MapPanel.js';
 import ShopPanel from '../ui/ShopPanel.js';
+import MiniMap from '../ui/MiniMap.js';
 import { buildFromTree, effectiveSkills, availablePoints } from '../skilltree.js';
 import { applyIso, project, unproject, dirToWorld, projectDir, bodyDepth, zoneBounds } from '../iso.js';
 import { drawHumanoid, drawCreature, drawBoss, drawMinion } from '../sprites.js';
@@ -100,6 +101,9 @@ export default class OnlineScene extends Phaser.Scene {
     // Server announces shrine discovery — show a banner.
     if (this.net) this.net.on('waystone', (d) => { if (d && d.name) this.showBanner('Waystone discovered: ' + d.name); });
 
+    this.miniMap = new MiniMap(this);
+    this.portals = [];
+
     this.inputAcc = 0;
     this.move = { x: 0, y: 0 };
   }
@@ -139,6 +143,7 @@ export default class OnlineScene extends Phaser.Scene {
       this.portalLabels.push(this.add.text(ssp.x, ssp.y - 50, '🛒 Market (B)', { fontFamily: 'Segoe UI', fontSize: '14px', fontStyle: 'bold', color: '#ffe066', stroke: '#06121c', strokeThickness: 4 }).setOrigin(0.5).setDepth(40));
     }
 
+    this.portals = zonePortals(key, seed);
     this.waystones = zoneWaystones(key, seed);
     this._wpCount = -1; // force shrine redraw for the new zone
     this.drawWaystones();
@@ -314,6 +319,19 @@ export default class OnlineScene extends Phaser.Scene {
     this.consumeFx(snap.fx);
     this.updateHud(snap);
     this.world.sort('depth'); // painter's order for the iso world layer
+
+    if (this.miniMap) {
+      const meEnt = snap.players.find((p) => p.id === this.net.youId);
+      this.miniMap.update({
+        bounds: this.bounds,
+        player: this.localPos ?? (meEnt ? { x: meEnt.x, y: meEnt.y } : null),
+        allies: snap.players.filter((p) => p.id !== this.net.youId).map((p) => ({ x: p.x, y: p.y })),
+        mobs: snap.mobs,
+        boss: snap.boss,
+        portals: this.portals,
+        waystones: this.waystones,
+      });
+    }
 
     if (this.localPos) { const cam = this.cameras.main; const sp = project(this.localPos.x, this.localPos.y); cam.scrollX += (sp.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (sp.y - cam.height / 2 - cam.scrollY) * 0.15; }
   }
