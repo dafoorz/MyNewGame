@@ -185,7 +185,7 @@ export default class ServerPlayer {
   }
 
   // --- progression ---
-  xpToNext() { return Math.floor(60 * Math.pow(1.25, this.level - 1)); }
+  xpToNext() { return Math.floor(100 * Math.pow(1.35, this.level - 1)); }
   addXp(amount) {
     this.xp += amount;
     let gained = 0;

@@ -87,10 +87,22 @@ const back = setInterval(() => steer(aSnap, a, 'Tank', FX, FY), 80);
 await waitFor(() => aSnap.zoneKey === 'forest', 9000);
 clearInterval(back); a.emit('input', { mx: 0, my: 0, facing: 0 });
 
-// Mage nukes the nearest mob with Fireball (auto-targets) until XP is gained.
-const fight = setInterval(() => { b.emit('cast', { slot: 1 }); b.emit('basic'); }, 120);
-const gotXp = await waitFor(() => bSnap && bSnap.me && (bSnap.me.level > 1 || bSnap.me.xp > 0), 8000);
+// Mage hunts the nearest mob (zones are huge, so close the distance first) and
+// nukes it with Fireball until XP is gained.
+const hunt = (sock, snap, name) => {
+  const me = snap && snap.players && snap.players.find((p) => p.name === name);
+  const mobs = (snap && snap.mobs) || [];
+  if (!me || !mobs.length) { sock.emit('cast', { slot: 1 }); sock.emit('basic'); return; }
+  let best = mobs[0], bd = Infinity;
+  for (const m of mobs) { const d = Math.hypot(m.x - me.x, m.y - me.y); if (d < bd) { bd = d; best = m; } }
+  const dx = best.x - me.x, dy = best.y - me.y, d = Math.hypot(dx, dy) || 1, f = Math.atan2(dy, dx);
+  sock.emit('input', { mx: d > 90 ? dx / d : 0, my: d > 90 ? dy / d : 0, facing: f });
+  sock.emit('cast', { slot: 1 }); sock.emit('basic');
+};
+const fight = setInterval(() => hunt(b, bSnap, 'Mage'), 120);
+const gotXp = await waitFor(() => bSnap && bSnap.me && (bSnap.me.level > 1 || bSnap.me.xp > 0), 10000);
 clearInterval(fight);
+b.emit('input', { mx: 0, my: 0, facing: 0 });
 if (!gotXp) fail('no XP gained from fighting mobs');
 if (!(bSnap.me.gold > 0)) fail('no gold gained from killing mobs');
 console.log(`  mage gained XP (level ${bSnap.me.level}, xp ${bSnap.me.xp}), gold ${bSnap.me.gold}`);
@@ -115,10 +127,11 @@ const dodged = await waitFor(() => bSnap && bSnap.me && bSnap.me.cd && bSnap.me.
 if (!dodged) fail('dodge (skill 5) did not trigger a cooldown');
 console.log(`  dodge cast: slot-5 cd ${bSnap.me.cd[5]}s`);
 
-// Loot: server rolls drops on mob kills — fight on until the backpack fills.
-const loot = setInterval(() => { b.emit('cast', { slot: 1 }); b.emit('basic'); }, 110);
-const gotLoot = await waitFor(() => bSnap && bSnap.me && bSnap.me.inventory && bSnap.me.inventory.length > 0, 14000);
+// Loot: server rolls drops on mob kills — hunt mobs until the backpack fills.
+const loot = setInterval(() => hunt(b, bSnap, 'Mage'), 110);
+const gotLoot = await waitFor(() => bSnap && bSnap.me && bSnap.me.inventory && bSnap.me.inventory.length > 0, 16000);
 clearInterval(loot);
+b.emit('input', { mx: 0, my: 0, facing: 0 });
 if (!gotLoot) fail('no loot dropped after extended fighting');
 console.log(`  loot dropped: ${bSnap.me.inventory.length} item(s)`);
 
