@@ -9,9 +9,10 @@ export default class Progression {
     this.pointsPerLevel = 3;
   }
 
-  // XP required to go from current level to the next.
+  // XP required to go from current level to the next. Scales up steeply so each
+  // level is a bigger commitment than the last.
   xpToNext() {
-    return Math.floor(60 * Math.pow(1.25, this.level - 1));
+    return Math.floor(100 * Math.pow(1.35, this.level - 1));
   }
 
   // Add XP; returns how many levels were gained this call.
