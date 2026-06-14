@@ -1,6 +1,6 @@
 import { MOB_TYPES } from '../world/zones.js';
 import HealthBar from '../ui/HealthBar.js';
-import { project, bodyDepth } from '../iso.js';
+import { project, bodyDepth, isoSpeedScale } from '../iso.js';
 import { drawCreature } from '../sprites.js';
 
 // A zone mob. Idle until the player gets close, then chases (melee) or kites
@@ -78,8 +78,10 @@ export default class Mob {
 
   moveToward(tx, ty, dt, mult = 1) {
     const ang = Math.atan2(ty - this.y, tx - this.x);
-    this.x += Math.cos(ang) * this.speed * mult * dt;
-    this.y += Math.sin(ang) * this.speed * mult * dt;
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const iso = isoSpeedScale(c, s); // even out on-screen speed across headings
+    this.x += c * this.speed * mult * dt * iso;
+    this.y += s * this.speed * mult * dt * iso;
     this.clampToBounds();
   }
 
