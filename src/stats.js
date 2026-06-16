@@ -24,9 +24,11 @@ export class Stats {
     return 6 + this.INT * 2.0;
   }
 
-  // Pixels per second.
+  // Pixels per second. The 1.3x factor compensates for the iso movement
+  // normalization (dirToWorld scales input by SY for uniform on-screen speed),
+  // so the effective walking pace matches the pre-iso feel in every direction.
   get moveSpeed() {
-    return 170 + this.AGI * 5;
+    return (170 + this.AGI * 5) * 1.3;
   }
 
   // Seconds between basic attacks (lower = faster). DEX shortens the gap.

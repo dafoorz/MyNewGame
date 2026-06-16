@@ -44,14 +44,32 @@ export function unproject(px, py) {
   return { x: C * px + S * py, y: (-S * px + C * py) / SY };
 }
 
-// Screen movement intent (WASD up = -y) -> normalized world direction.
+// Screen movement intent (WASD up = -y) -> world velocity vector that moves the
+// character at a UNIFORM on-screen speed in every direction. Because the iso view
+// squashes Y by SY, a world-uniform speed otherwise renders ~2x faster along the
+// screen's NE/SW axis than its NW/SE axis (the "fast diagonal" bug). We instead
+// un-project the *normalized screen* direction so its projected length is constant
+// (= SY), and scale by SY so the magnitude stays in [SY, 1] — never tripping the
+// server's anti-cheat clamp (which caps |input| at 1).
 export function dirToWorld(ix, iy) {
-  if (!ENABLED) return { x: ix, y: iy };
-  let wx = C * ix + S * iy;
-  let wy = (-S * ix + C * iy) / SY;
-  const len = Math.hypot(wx, wy);
-  if (len > 0) { wx /= len; wy /= len; }
-  return { x: wx, y: wy };
+  const len = Math.hypot(ix, iy);
+  if (len === 0) return { x: 0, y: 0 };
+  const sx = ix / len, sy = iy / len; // unit screen direction
+  if (!ENABLED) return { x: sx, y: sy }; // top-down: world == screen
+  return { x: SY * (C * sx + S * sy), y: -S * sx + C * sy };
+}
+
+// Multiplier that makes a world-space velocity move at a UNIFORM on-screen speed
+// under the iso squash (1 when iso is disabled). Pass the world direction (any
+// magnitude); returns ~0.71x along the fast screen axis up to ~1.41x along the
+// slow one so mobs/projectiles look like they move at one speed in every heading.
+export function isoSpeedScale(dx, dy) {
+  if (!ENABLED) return 1;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return 1;
+  const ux = dx / len, uy = dy / len;
+  const proj = Math.sqrt(ux * ux + SY * SY * uy * uy); // |project(unit dir)|
+  return Math.SQRT1_2 / proj; // target screen speed = 0.707 * world speed
 }
 
 // Painter's-order depth for a world position (closer to the camera = larger).

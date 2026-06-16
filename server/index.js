@@ -11,7 +11,13 @@ const PORT = process.env.PORT || 8080;
 
 const app = express();
 // Serve the static client (index.html + src/) so one command runs everything.
-app.use(express.static(ROOT));
+// no-cache on source/HTML so the browser always revalidates ES modules — the
+// `?v=N` on index.html only busts main.js, not its imported submodules.
+app.use(express.static(ROOT, {
+  setHeaders: (res, filePath) => {
+    if (/\.(js|mjs|html)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('*', (_req, res) => res.sendFile(path.join(ROOT, 'index.html')));
 
