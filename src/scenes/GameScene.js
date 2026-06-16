@@ -38,6 +38,12 @@ export default class GameScene extends Phaser.Scene {
     this.load.image('town_inn', 'assets/town/inn.png');
     this.load.image('town_blue_house', 'assets/town/blue_house.png');
     this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
+    this.load.image('town_top_angle_house', 'assets/town/top_angle_house.png');
+  }
+  preload() {
+    this.load.image('town_inn', 'assets/town/inn.png');
+    this.load.image('town_blue_house', 'assets/town/blue_house.png');
+    this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
   }
   constructor() {
     super('GameScene');
