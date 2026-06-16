@@ -342,28 +342,41 @@ export default class GameScene extends Phaser.Scene {
     this.townPropLayer = [];
 
     const houses = [
-      [560, 756, 0x714334], [952, 748, 0x714334], [1066, 466, 0x6c4032],
-      [392, 454, 0x6f4934], [1166, 852, 0x6b3b30], [318, 796, 0x70523a],
+      { type: 'houseLarge', x: 760, y: 540, roof: 0x7a5635, wall: 0xd7c59f, trim: 0x5d4330, door: 0x6b452d, w: 176, h: 124 },
+      { type: 'houseBlue', x: 1105, y: 430, roof: 0x4e86b7, wall: 0xe1d7be, trim: 0x5a4a37, door: 0x734c34, w: 132, h: 96 },
+      { type: 'housePurple', x: 520, y: 840, roof: 0x8c4f92, wall: 0xd8b1c8, trim: 0x56354f, door: 0x6d4059, w: 150, h: 110 },
+      { type: 'houseBlue', x: 1148, y: 912, roof: 0x4d7fb0, wall: 0xd7d1c0, trim: 0x4b4338, door: 0x6e4b34, w: 136, h: 98 },
     ];
-    for (const [x, y, roof] of houses) this.spawnHouseProp(x, y, roof);
+    for (const h of houses) this.spawnHouseProp(h);
 
     const trees = [
-      [190, 150], [260, 138], [140, 392], [118, 690], [210, 878],
-      [420, 160], [470, 860], [575, 930], [930, 122], [1110, 168],
-      [1310, 180], [1360, 340], [1342, 650], [1280, 910], [1040, 930],
-      [884, 866], [340, 916], [1240, 500], [1000, 250], [460, 300],
+      [220, 240, 1.15], [174, 518, 1.0], [238, 910, 0.95], [432, 212, 0.95], [934, 180, 0.92],
+      [1260, 210, 0.95], [1324, 404, 1.0], [1304, 736, 0.95], [1008, 994, 0.92], [352, 1000, 0.95],
     ];
-    for (const [x, y] of trees) this.spawnTreeProp(x, y);
+    for (const [x, y, s] of trees) this.spawnTreeProp({ x, y, scale: s });
+
+    const props = [
+      { kind: 'lamp', x: 116, y: 602 },
+      { kind: 'barrel', x: 676, y: 474 }, { kind: 'barrel', x: 708, y: 474 },
+      { kind: 'crate', x: 1060, y: 502 }, { kind: 'barrel', x: 1094, y: 520 },
+      { kind: 'barrel', x: 454, y: 874 }, { kind: 'crate', x: 1200, y: 946 },
+    ];
+    for (const p of props) this.spawnTownDetail(p);
   }
 
-  spawnHouseProp(x, y, roofColor) {
+  spawnHouseProp(data) {
     const g = this.add.graphics();
-    this.townPropLayer.push({ kind: 'house', x, y, roofColor, g });
+    this.townPropLayer.push({ kind: 'house', ...data, g });
   }
 
-  spawnTreeProp(x, y) {
+  spawnTreeProp(data) {
     const g = this.add.graphics();
-    this.townPropLayer.push({ kind: 'tree', x, y, g });
+    this.townPropLayer.push({ kind: 'tree', ...data, g });
+  }
+
+  spawnTownDetail(data) {
+    const g = this.add.graphics();
+    this.townPropLayer.push({ ...data, g });
   }
 
   updateTownProps() {
@@ -373,30 +386,83 @@ export default class GameScene extends Phaser.Scene {
       const p = project(o.x, o.y);
       g.clear();
       g.setDepth(bodyDepth(o.x, o.y));
+
       if (o.kind === 'house') {
-        g.fillStyle(0x000000, 0.18); g.fillEllipse(p.x, p.y + 8, 92, 28);
-        g.fillStyle(0xd7c6a4, 1); g.fillRoundedRect(p.x - 34, p.y - 72, 68, 48, 8);
-        g.lineStyle(2, 0x6b5643, 0.45); g.strokeRoundedRect(p.x - 34, p.y - 72, 68, 48, 8);
-        g.fillStyle(o.roofColor, 1);
+        const w = o.w, h = o.h;
+        const left = p.x - w / 2;
+        const top = p.y - h;
+        const wallH = Math.round(h * 0.46);
+        const roofTop = top - Math.round(h * 0.34);
+        const roofInset = Math.round(w * 0.12);
+        const porchY = p.y - Math.round(h * 0.12);
+
+        g.fillStyle(0x000000, 0.16); g.fillEllipse(p.x, p.y + 8, w * 0.72, 22);
+
+        g.fillStyle(o.wall, 1); g.fillRoundedRect(left, top + wallH, w, h - wallH, 10);
+        g.fillStyle(Phaser.Display.Color.IntegerToColor(o.wall).darken(18).color, 1);
+        g.fillRect(left + 10, top + wallH + 8, w - 20, 10);
+        g.lineStyle(3, o.trim, 0.55); g.strokeRoundedRect(left, top + wallH, w, h - wallH, 10);
+
+        g.fillStyle(o.roof, 1);
         g.beginPath();
-        g.moveTo(p.x - 42, p.y - 72); g.lineTo(p.x, p.y - 104); g.lineTo(p.x + 42, p.y - 72); g.closePath();
+        g.moveTo(left - 8, top + wallH + 10);
+        g.lineTo(left + roofInset, top + 10);
+        g.lineTo(p.x, roofTop);
+        g.lineTo(left + w - roofInset, top + 10);
+        g.lineTo(left + w + 8, top + wallH + 10);
+        g.closePath();
         g.fillPath();
-        g.lineStyle(2, 0x3e241b, 0.45);
-        g.beginPath();
-        g.moveTo(p.x - 42, p.y - 72); g.lineTo(p.x, p.y - 104); g.lineTo(p.x + 42, p.y - 72);
-        g.strokePath();
-        g.fillStyle(0x6c4a33, 1); g.fillRoundedRect(p.x - 8, p.y - 46, 16, 22, 4);
-        g.fillStyle(0xf0e1bf, 0.95); g.fillRect(p.x - 22, p.y - 62, 44, 7);
-      } else {
-        g.fillStyle(0x000000, 0.16); g.fillEllipse(p.x, p.y + 6, 64, 20);
-        g.fillStyle(0x6a4628, 1); g.fillRect(p.x - 5, p.y - 42, 10, 28);
-        g.fillStyle(0x274c30, 1); g.fillCircle(p.x, p.y - 66, 24);
-        g.fillStyle(0x345f39, 1); g.fillCircle(p.x - 16, p.y - 52, 16);
-        g.fillStyle(0x345f39, 1); g.fillCircle(p.x + 16, p.y - 52, 16);
-        g.fillStyle(0x4f8352, 1); g.fillCircle(p.x, p.y - 46, 18);
+        g.lineStyle(3, Phaser.Display.Color.IntegerToColor(o.roof).darken(35).color, 0.55);
+        for (let yy = top + 16; yy < top + wallH + 6; yy += 9) {
+          g.beginPath();
+          g.moveTo(left + roofInset - 4, yy);
+          g.lineTo(left + w - roofInset + 4, yy);
+          g.strokePath();
+        }
+
+        const doorW = Math.max(18, Math.round(w * 0.13));
+        const doorH = Math.max(26, Math.round(h * 0.22));
+        g.fillStyle(o.door, 1); g.fillRoundedRect(p.x - doorW / 2, p.y - doorH - 4, doorW, doorH, 6);
+        g.lineStyle(2, 0x2e1b12, 0.45); g.strokeRoundedRect(p.x - doorW / 2, p.y - doorH - 4, doorW, doorH, 6);
+
+        const winW = Math.round(w * 0.16), winH = Math.round(h * 0.14);
+        const wy = top + wallH + 14;
+        for (const wx of [left + w * 0.24, left + w * 0.76]) {
+          g.fillStyle(0xbfe5ff, 0.95); g.fillRoundedRect(wx - winW / 2, wy, winW, winH, 5);
+          g.lineStyle(2, o.trim, 0.45); g.strokeRoundedRect(wx - winW / 2, wy, winW, winH, 5);
+          g.lineBetween(wx, wy + 3, wx, wy + winH - 3);
+          g.lineBetween(wx - winW / 2 + 3, wy + winH / 2, wx + winW / 2 - 3, wy + winH / 2);
+        }
+
+        g.fillStyle(0xc49a61, 1); g.fillRect(p.x - w * 0.18, porchY, w * 0.36, 8);
+      } else if (o.kind === 'tree') {
+        const s = o.scale || 1;
+        g.fillStyle(0x000000, 0.14); g.fillEllipse(p.x, p.y + 6, 58 * s, 18 * s);
+        g.fillStyle(0x6e492d, 1); g.fillRoundedRect(p.x - 7 * s, p.y - 46 * s, 14 * s, 34 * s, 6);
+        g.fillStyle(0x2c512f, 1); g.fillCircle(p.x, p.y - 80 * s, 28 * s);
+        g.fillStyle(0x36683b, 1); g.fillCircle(p.x - 22 * s, p.y - 62 * s, 22 * s);
+        g.fillStyle(0x36683b, 1); g.fillCircle(p.x + 22 * s, p.y - 62 * s, 22 * s);
+        g.fillStyle(0x4e8552, 1); g.fillCircle(p.x, p.y - 52 * s, 20 * s);
+        g.fillStyle(0x78b06d, 0.35); g.fillCircle(p.x - 10 * s, p.y - 88 * s, 10 * s);
+      } else if (o.kind === 'lamp') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 4, 22, 8);
+        g.lineStyle(4, 0x51616c, 1); g.lineBetween(p.x, p.y - 38, p.x, p.y - 6);
+        g.fillStyle(0x87c7db, 0.95); g.fillCircle(p.x, p.y - 44, 8);
+        g.lineStyle(2, 0xd9f3ff, 0.4); g.strokeCircle(p.x, p.y - 44, 11);
+      } else if (o.kind === 'barrel') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 3, 20, 8);
+        g.fillStyle(0x7f5a35, 1); g.fillRoundedRect(p.x - 8, p.y - 16, 16, 18, 5);
+        g.lineStyle(2, 0x47311f, 0.65); g.strokeRoundedRect(p.x - 8, p.y - 16, 16, 18, 5);
+        g.lineBetween(p.x - 8, p.y - 10, p.x + 8, p.y - 10); g.lineBetween(p.x - 8, p.y - 2, p.x + 8, p.y - 2);
+      } else if (o.kind === 'crate') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 3, 22, 8);
+        g.fillStyle(0x8a633e, 1); g.fillRoundedRect(p.x - 9, p.y - 15, 18, 16, 4);
+        g.lineStyle(2, 0x4f3824, 0.65); g.strokeRoundedRect(p.x - 9, p.y - 15, 18, 16, 4);
+        g.lineBetween(p.x - 9, p.y - 15, p.x + 9, p.y + 1); g.lineBetween(p.x + 9, p.y - 15, p.x - 9, p.y + 1);
       }
     }
   }
+
 
   drawPortals() {
     const g = this.portalGfx;
