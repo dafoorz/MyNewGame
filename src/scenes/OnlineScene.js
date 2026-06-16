@@ -24,6 +24,11 @@ const INPUT_HZ = 20;
 const STAT_INFO = [['STR', 'melee dmg'], ['DEX', 'crit/atk spd'], ['INT', 'magic dmg'], ['VIT', 'max health'], ['AGI', 'move speed']];
 
 export default class OnlineScene extends Phaser.Scene {
+  preload() {
+    this.load.image('town_inn', 'assets/town/inn.png');
+    this.load.image('town_blue_house', 'assets/town/blue_house.png');
+    this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
+  }
   constructor() { super('OnlineScene'); }
 
   create(data) {
@@ -226,7 +231,7 @@ export default class OnlineScene extends Phaser.Scene {
 
   spawnHouseProp(data) {
     const g = this.add.graphics();
-    this.townPropLayer.push({ kind: 'house', ...data, g });
+    this.townPropLayer.push({ kind: 'house', ...data, spriteKey: data.spriteKey || null, spriteScale: data.spriteScale || 1, spriteYOffset: data.spriteYOffset || 0, g });
   }
 
   spawnTreeProp(data) {
@@ -248,6 +253,21 @@ export default class OnlineScene extends Phaser.Scene {
       g.setDepth(bodyDepth(o.x, o.y));
 
       if (o.kind === 'house') {
+        if (o.spriteKey && this.textures.exists(o.spriteKey)) {
+          if (!o.sprite) {
+            o.sprite = this.add.image(p.x, p.y + (o.spriteYOffset || 0), o.spriteKey);
+            o.sprite.setOrigin(0.5, 1);
+          }
+          o.sprite.setPosition(p.x, p.y + (o.spriteYOffset || 0));
+          o.sprite.setScale(o.spriteScale || 1);
+          o.sprite.setDepth(bodyDepth(o.x, o.y));
+          g.clear();
+          g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 8, o.w * 0.76, 18);
+          continue;
+        } else if (o.sprite) {
+          o.sprite.destroy();
+          o.sprite = null;
+        }
         const w = o.w, h = o.h;
         const frontW = Math.round(w * 0.78);
         const sideW = Math.round(w * 0.2);
