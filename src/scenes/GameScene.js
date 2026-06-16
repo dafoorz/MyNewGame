@@ -226,6 +226,135 @@ export default class GameScene extends Phaser.Scene {
     g.clear();
     g.fillStyle(z.bg, 1);
     g.fillRect(0, 0, z.size.w, z.size.h);
+
+    if (this.zoneKey === 'town') {
+      // Riverwood: hand-painted readable hub layout with roads, grass, river edge,
+      // plaza, market area, and decorative trees that survive the iso projection.
+      g.fillStyle(0x25472d, 1);
+      g.fillRect(0, 0, z.size.w, z.size.h);
+
+      // outer meadow bands
+      g.fillStyle(0x2e5a38, 1); g.fillRect(34, 34, z.size.w - 68, z.size.h - 68);
+      g.fillStyle(0x3a6a42, 0.95); g.fillRect(86, 86, z.size.w - 172, z.size.h - 172);
+
+      // river/cove edge on the north-west side
+      g.fillStyle(0x24505f, 0.95);
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(420, 0);
+      g.lineTo(300, 110);
+      g.lineTo(220, 210);
+      g.lineTo(110, 260);
+      g.lineTo(0, 300);
+      g.closePath();
+      g.fillPath();
+      g.fillStyle(0x3d8795, 0.9);
+      g.beginPath();
+      g.moveTo(0, 34);
+      g.lineTo(362, 34);
+      g.lineTo(266, 126);
+      g.lineTo(198, 198);
+      g.lineTo(100, 244);
+      g.lineTo(0, 278);
+      g.closePath();
+      g.fillPath();
+
+      // central roads
+      g.lineStyle(72, 0x947048, 1); g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(70, 525);
+      g.lineTo(330, 525);
+      g.lineTo(520, 540);
+      g.lineTo(760, 560);
+      g.lineTo(980, 540);
+      g.lineTo(1200, 530);
+      g.lineTo(1430, 530);
+      g.strokePath();
+
+      g.lineStyle(64, 0x8a6840, 1);
+      g.beginPath();
+      g.moveTo(750, 120);
+      g.lineTo(748, 260);
+      g.lineTo(752, 420);
+      g.lineTo(760, 560);
+      g.lineTo(742, 700);
+      g.lineTo(720, 860);
+      g.lineTo(706, 980);
+      g.strokePath();
+
+      // road highlights
+      g.lineStyle(16, 0xb38a57, 0.65);
+      g.beginPath();
+      g.moveTo(90, 525); g.lineTo(1430, 525); g.strokePath();
+      g.beginPath();
+      g.moveTo(752, 120); g.lineTo(720, 980); g.strokePath();
+
+      // plaza around waystone
+      g.fillStyle(0x7e684a, 1); g.fillCircle(750, 560, 126);
+      g.fillStyle(0x99815f, 1); g.fillCircle(750, 560, 90);
+      g.lineStyle(5, 0xcdb58a, 0.7);
+      for (let r in [52, 88, 122]) {}
+      [52, 88, 122].forEach((r) => g.strokeCircle(750, 560, r));
+
+      // market square near the shop
+      g.fillStyle(0x6d5338, 0.95); g.fillRoundedRect(620, 255, 260, 156, 18);
+      g.lineStyle(4, 0xb79058, 0.8); g.strokeRoundedRect(620, 255, 260, 156, 18);
+      g.fillStyle(0xb5443c, 0.85); g.fillRect(650, 272, 74, 38);
+      g.fillStyle(0xcfb15c, 0.85); g.fillRect(730, 272, 60, 38);
+      g.fillStyle(0x5b7f43, 0.85); g.fillRect(796, 272, 52, 38);
+      g.fillStyle(0x7a3430, 0.85); g.fillRect(662, 320, 82, 42);
+      g.fillStyle(0x4a6d78, 0.85); g.fillRect(752, 320, 74, 42);
+
+      // simple house roofs / town blocks for readability
+      const houses = [
+        [500, 660, 118, 86, 0x714334], [916, 654, 118, 86, 0x714334],
+        [1010, 374, 124, 92, 0x6c4032], [330, 360, 118, 84, 0x6f4934],
+        [1110, 760, 126, 90, 0x6b3b30], [260, 700, 122, 88, 0x70523a],
+      ];
+      for (const [x, y, w, h, roof] of houses) {
+        g.fillStyle(0xc7b28a, 0.96); g.fillRoundedRect(x, y, w, h, 14);
+        g.fillStyle(roof, 0.98);
+        g.beginPath();
+        g.moveTo(x - 10, y + 20); g.lineTo(x + w / 2, y - 20); g.lineTo(x + w + 10, y + 20); g.lineTo(x + w - 6, y + 34); g.lineTo(x + 6, y + 34); g.closePath();
+        g.fillPath();
+        g.lineStyle(2, 0x4a3025, 0.35); g.strokeRoundedRect(x, y, w, h, 14);
+      }
+
+      // fences toward exits
+      g.lineStyle(6, 0x5f452e, 0.9);
+      for (let x = 120; x <= 340; x += 32) { g.lineBetween(x, 180, x, 230); }
+      g.lineBetween(104, 196, 356, 196); g.lineBetween(104, 222, 356, 222);
+      for (let x = 1150; x <= 1370; x += 32) { g.lineBetween(x, 856, x, 906); }
+      g.lineBetween(1134, 872, 1386, 872); g.lineBetween(1134, 898, 1386, 898);
+
+      // trees: trunk + two canopy circles
+      const trees = [
+        [190, 150], [260, 138], [140, 392], [118, 690], [210, 878],
+        [420, 160], [470, 860], [575, 930], [930, 122], [1110, 168],
+        [1310, 180], [1360, 340], [1342, 650], [1280, 910], [1040, 930],
+        [884, 866], [340, 916], [1240, 500], [1000, 250], [460, 300],
+      ];
+      for (const [x, y] of trees) {
+        g.fillStyle(0x5e3f22, 0.95); g.fillRect(x - 5, y + 12, 10, 20);
+        g.fillStyle(0x264b2e, 0.98); g.fillCircle(x, y, 24);
+        g.fillStyle(0x3d6b43, 0.98); g.fillCircle(x + 12, y - 8, 18);
+        g.fillStyle(0x6fa066, 0.4); g.fillCircle(x - 10, y - 12, 12);
+      }
+
+      // flower patches / visual breakup
+      const patches = [
+        [540, 470, 38, 18], [952, 468, 36, 18], [622, 770, 46, 22], [866, 760, 42, 20], [540, 208, 48, 20], [1180, 618, 44, 22],
+      ];
+      for (const [x, y, w, h] of patches) {
+        g.fillStyle(0x487b48, 0.55); g.fillEllipse(x, y, w, h);
+        g.fillStyle(0xc9c36c, 0.35); g.fillEllipse(x + 6, y - 2, w * 0.35, h * 0.35);
+      }
+
+      g.lineStyle(8, 0x4f3523, 0.8);
+      g.strokeRect(10, 10, z.size.w - 20, z.size.h - 20);
+      return;
+    }
+
     g.lineStyle(6, z.accent, 1);
     g.strokeRect(3, 3, z.size.w - 6, z.size.h - 6);
     g.lineStyle(1, z.accent, 0.4);
