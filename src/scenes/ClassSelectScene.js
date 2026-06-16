@@ -12,8 +12,6 @@ export default class ClassSelectScene extends Phaser.Scene {
   }
 
   create(data) {
-    this.scale.scaleMode = Phaser.Scale.FIT;
-    this.scale.refresh();
     this.mode = (data && data.mode) || 'solo';
     this.pname = (data && data.name) || 'Player';
     this.pcode = (data && data.code) || '';

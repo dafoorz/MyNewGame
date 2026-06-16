@@ -39,8 +39,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create(data) {
-    this.scale.scaleMode = Phaser.Scale.RESIZE;
-    this.scale.resize(window.innerWidth, window.innerHeight);
     this.isTouch = this.sys.game.device.input.touch || 'ontouchstart' in window;
 
     // Isometric world container: all world GRAPHICS live here and inherit the
