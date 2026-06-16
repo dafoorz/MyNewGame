@@ -27,8 +27,6 @@ export default class OnlineScene extends Phaser.Scene {
   constructor() { super('OnlineScene'); }
 
   create(data) {
-    this.scale.scaleMode = Phaser.Scale.ENVELOP;
-    this.scale.refresh();
     this.net = data.net;
     this.classKey = data.classKey;
     this.classDef = CLASSES[this.classKey];

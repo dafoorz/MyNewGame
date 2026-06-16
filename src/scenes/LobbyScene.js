@@ -7,8 +7,6 @@ export default class LobbyScene extends Phaser.Scene {
   constructor() { super('LobbyScene'); }
 
   create() {
-    this.scale.scaleMode = Phaser.Scale.FIT;
-    this.scale.refresh();
     this.cameras.main.setBackgroundColor(CONFIG.colors.bg);
     const cx = CONFIG.width / 2;
 
