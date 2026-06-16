@@ -412,124 +412,133 @@ export default class GameScene extends Phaser.Scene {
       if (o.kind === 'house') {
         const w = o.w, h = o.h;
         const frontW = Math.round(w * 0.78);
-        const sideW = Math.round(w * 0.22);
-        const frontLeft = p.x - frontW / 2;
-        const frontRight = p.x + frontW / 2;
+        const sideW = Math.round(w * 0.2);
+        const frontLeft = Math.round(p.x - frontW / 2);
+        const frontRight = frontLeft + frontW;
         const sideRight = frontRight + sideW;
-        const top = p.y - h;
-        const wallTop = top + Math.round(h * 0.42);
-        const roofPeakY = top - Math.round(h * 0.18);
-        const roofLeftX = frontLeft + Math.round(frontW * 0.14);
-        const roofRightX = frontRight - Math.round(frontW * 0.14);
-        const eaveY = wallTop + 8;
-        const roofThickness = 12;
+        const baseY = Math.round(p.y);
+        const top = Math.round(baseY - h);
+        const wallTop = Math.round(top + h * 0.44);
+        const roofPeakY = Math.round(top - h * 0.14);
+        const roofLeftX = Math.round(frontLeft + frontW * 0.16);
+        const roofRightX = Math.round(frontRight - frontW * 0.14);
+        const eaveY = Math.round(wallTop + 8);
+        const roofLip = 10;
         const doorW = Math.max(20, Math.round(w * 0.13));
         const doorH = Math.max(30, Math.round(h * 0.24));
-        const wallShade = Phaser.Display.Color.IntegerToColor(o.wall).darken(14).color;
-        const sideShade = Phaser.Display.Color.IntegerToColor(o.wall).darken(28).color;
+        const wallShade = Phaser.Display.Color.IntegerToColor(o.wall).darken(10).color;
+        const wallDeep = Phaser.Display.Color.IntegerToColor(o.wall).darken(24).color;
         const wallLight = Phaser.Display.Color.IntegerToColor(o.wall).lighten(10).color;
-        const roofDark = Phaser.Display.Color.IntegerToColor(o.roof).darken(28).color;
-        const roofSide = Phaser.Display.Color.IntegerToColor(o.roof).darken(40).color;
+        const roofDark = Phaser.Display.Color.IntegerToColor(o.roof).darken(20).color;
+        const roofSide = Phaser.Display.Color.IntegerToColor(o.roof).darken(34).color;
+        const trimDark = Phaser.Display.Color.IntegerToColor(o.trim).darken(10).color;
 
-        g.fillStyle(0x000000, 0.18); g.fillEllipse(p.x + sideW * 0.2, p.y + 8, w * 0.82, 24);
+        g.fillStyle(0x000000, 0.14); g.fillEllipse(p.x + sideW * 0.18, baseY + 7, w * 0.78, 20);
 
         if (o.deck) {
-          g.fillStyle(0xc89a62, 1); g.fillRoundedRect(frontLeft - 22, p.y - 18, frontW + sideW + 44, 24, 8);
-          g.lineStyle(3, 0x7d5a36, 0.5); g.strokeRoundedRect(frontLeft - 22, p.y - 18, frontW + sideW + 44, 24, 8);
-          for (let xx = frontLeft - 10; xx < sideRight + 20; xx += 18) g.lineBetween(xx, p.y - 16, xx, p.y + 4);
+          g.fillStyle(0xc4955f, 1); g.fillRoundedRect(frontLeft - 18, baseY - 18, frontW + sideW + 34, 22, 6);
+          g.lineStyle(2, 0x7b5936, 0.45); g.strokeRoundedRect(frontLeft - 18, baseY - 18, frontW + sideW + 34, 22, 6);
+          g.lineStyle(1, 0x9f7748, 0.4);
+          for (let xx = frontLeft - 6; xx < sideRight + 14; xx += 14) g.lineBetween(xx, baseY - 16, xx, baseY + 2);
         }
 
-        g.fillStyle(sideShade, 1);
+        g.fillStyle(wallDeep, 1);
         g.beginPath();
-        g.moveTo(frontRight, wallTop);
-        g.lineTo(sideRight, wallTop - 10);
-        g.lineTo(sideRight, p.y);
-        g.lineTo(frontRight, p.y);
+        g.moveTo(frontRight, wallTop + 2);
+        g.lineTo(sideRight, wallTop - 8);
+        g.lineTo(sideRight, baseY);
+        g.lineTo(frontRight, baseY);
         g.closePath();
         g.fillPath();
-        g.lineStyle(3, o.trim, 0.45); g.strokePath();
+        g.lineStyle(2, trimDark, 0.5); g.strokePath();
 
-        g.fillStyle(o.wall, 1); g.fillRoundedRect(frontLeft, wallTop, frontW, h - (wallTop - top), 10);
-        g.fillStyle(wallLight, 0.22); g.fillRect(frontLeft + 8, wallTop + 4, frontW - 16, 8);
-        g.fillStyle(wallShade, 1); g.fillRect(frontLeft + 10, wallTop + 12, frontW - 20, 12);
-        g.lineStyle(3, o.trim, 0.58); g.strokeRoundedRect(frontLeft, wallTop, frontW, h - (wallTop - top), 10);
+        g.fillStyle(o.wall, 1); g.fillRoundedRect(frontLeft, wallTop, frontW, baseY - wallTop, 8);
+        g.fillStyle(wallLight, 0.18); g.fillRect(frontLeft + 6, wallTop + 4, frontW - 12, 6);
+        g.fillStyle(wallShade, 1); g.fillRect(frontLeft + 8, wallTop + 12, frontW - 16, 10);
+        g.lineStyle(2, o.trim, 0.55); g.strokeRoundedRect(frontLeft, wallTop, frontW, baseY - wallTop, 8);
 
         g.fillStyle(roofSide, 1);
         g.beginPath();
-        g.moveTo(roofRightX, top + 12);
-        g.lineTo(sideRight + 10, top + 24);
-        g.lineTo(sideRight + 14, eaveY + 2);
-        g.lineTo(frontRight + 10, eaveY + 6);
+        g.moveTo(roofRightX, top + 14);
+        g.lineTo(sideRight + 8, top + 26);
+        g.lineTo(sideRight + 10, eaveY + 1);
+        g.lineTo(frontRight + 8, eaveY + roofLip - 2);
         g.closePath();
         g.fillPath();
 
         g.fillStyle(o.roof, 1);
         g.beginPath();
-        g.moveTo(frontLeft - 14, eaveY);
-        g.lineTo(roofLeftX, top + 12);
-        g.lineTo(p.x - 2, roofPeakY);
-        g.lineTo(roofRightX, top + 12);
-        g.lineTo(frontRight + 10, eaveY);
+        g.moveTo(frontLeft - 10, eaveY);
+        g.lineTo(roofLeftX, top + 14);
+        g.lineTo(p.x, roofPeakY);
+        g.lineTo(roofRightX, top + 14);
+        g.lineTo(frontRight + 8, eaveY);
         g.closePath();
         g.fillPath();
 
         g.fillStyle(roofDark, 1);
         g.beginPath();
-        g.moveTo(frontLeft - 16, eaveY + roofThickness / 2);
-        g.lineTo(frontLeft - 4, eaveY - 2);
-        g.lineTo(frontRight + 4, eaveY - 2);
-        g.lineTo(frontRight + 18, eaveY + roofThickness / 2);
-        g.lineTo(frontRight + 10, eaveY + roofThickness);
-        g.lineTo(frontLeft - 10, eaveY + roofThickness);
+        g.moveTo(frontLeft - 12, eaveY + roofLip / 2);
+        g.lineTo(frontLeft - 2, eaveY - 1);
+        g.lineTo(frontRight + 2, eaveY - 1);
+        g.lineTo(frontRight + 12, eaveY + roofLip / 2);
+        g.lineTo(frontRight + 8, eaveY + roofLip);
+        g.lineTo(frontLeft - 8, eaveY + roofLip);
         g.closePath();
         g.fillPath();
 
-        g.lineStyle(3, roofDark, 0.58);
-        for (let yy = top + 18; yy < eaveY - 2; yy += 9) {
+        g.lineStyle(2, roofDark, 0.55);
+        for (let yy = top + 18; yy < eaveY - 1; yy += 8) {
           g.beginPath();
-          g.moveTo(roofLeftX - 4, yy);
-          g.lineTo(roofRightX + 4, yy);
+          g.moveTo(roofLeftX - 2, yy);
+          g.lineTo(roofRightX + 2, yy);
           g.strokePath();
         }
-        g.lineStyle(3, 0xf2e1bc, 0.24);
+        g.lineStyle(2, 0xf6e6be, 0.22);
         g.beginPath();
-        g.moveTo(roofLeftX + 10, top + 20);
-        g.lineTo(p.x - 2, roofPeakY + 12);
-        g.lineTo(roofRightX - 10, top + 20);
+        g.moveTo(roofLeftX + 8, top + 18);
+        g.lineTo(p.x, roofPeakY + 10);
+        g.lineTo(roofRightX - 8, top + 18);
         g.strokePath();
 
         if (o.chimney) {
-          const cx = roofRightX - 10;
-          g.fillStyle(0x7d6b5e, 1); g.fillRoundedRect(cx, top + 8, 18, 28, 4);
-          g.lineStyle(2, 0x54463c, 0.5); g.strokeRoundedRect(cx, top + 8, 18, 28, 4);
+          const cx = Math.round(roofRightX - 6);
+          g.fillStyle(0x7f6d61, 1); g.fillRoundedRect(cx, top + 10, 16, 25, 3);
+          g.lineStyle(2, 0x58493f, 0.45); g.strokeRoundedRect(cx, top + 10, 16, 25, 3);
+          g.fillStyle(0xa89888, 1); g.fillRect(cx + 2, top + 8, 12, 4);
         }
 
-        g.fillStyle(o.door, 1); g.fillRoundedRect(p.x - doorW / 2, p.y - doorH - 4, doorW, doorH, 6);
-        g.lineStyle(2, 0x2e1b12, 0.5); g.strokeRoundedRect(p.x - doorW / 2, p.y - doorH - 4, doorW, doorH, 6);
-        g.fillStyle(0xe8cf7b, 0.35); g.fillCircle(p.x + doorW * 0.22, p.y - doorH * 0.5 - 4, 2);
+        const doorX = Math.round(p.x - doorW / 2);
+        const doorY = Math.round(baseY - doorH - 4);
+        g.fillStyle(o.door, 1); g.fillRoundedRect(doorX, doorY, doorW, doorH, 5);
+        g.lineStyle(2, 0x2e1b12, 0.5); g.strokeRoundedRect(doorX, doorY, doorW, doorH, 5);
+        g.fillStyle(0x1d1010, 0.18); g.fillRect(doorX + 3, doorY + 4, doorW - 6, doorH - 8);
+        g.fillStyle(0xf0d66a, 0.45); g.fillCircle(doorX + doorW - 5, doorY + doorH / 2, 2);
 
         const winW = Math.round(frontW * 0.18), winH = Math.round(h * 0.13);
         const wy = wallTop + 18;
-        for (const wx of [frontLeft + frontW * 0.26, frontLeft + frontW * 0.74]) {
-          g.fillStyle(0xbfe5ff, 0.96); g.fillRoundedRect(wx - winW / 2, wy, winW, winH, 5);
-          g.lineStyle(2, o.trim, 0.48); g.strokeRoundedRect(wx - winW / 2, wy, winW, winH, 5);
-          g.lineBetween(wx, wy + 3, wx, wy + winH - 3);
-          g.lineBetween(wx - winW / 2 + 3, wy + winH / 2, wx + winW / 2 - 3, wy + winH / 2);
+        for (const wx of [Math.round(frontLeft + frontW * 0.26), Math.round(frontLeft + frontW * 0.74)]) {
+          g.fillStyle(0xd8f0ff, 1); g.fillRoundedRect(wx - winW / 2, wy, winW, winH, 4);
+          g.lineStyle(2, o.trim, 0.45); g.strokeRoundedRect(wx - winW / 2, wy, winW, winH, 4);
+          g.lineBetween(wx, wy + 2, wx, wy + winH - 2);
+          g.lineBetween(wx - winW / 2 + 2, wy + winH / 2, wx + winW / 2 - 2, wy + winH / 2);
+          g.fillStyle(0xffffff, 0.16); g.fillRect(wx - winW / 2 + 2, wy + 2, winW - 4, 3);
         }
 
         if (o.type === 'inn') {
-          g.fillStyle(0x6f4d2e, 1); g.fillRoundedRect(p.x - 32, wallTop - 28, 64, 18, 6);
-          g.lineStyle(2, 0x3d281a, 0.55); g.strokeRoundedRect(p.x - 32, wallTop - 28, 64, 18, 6);
+          g.fillStyle(0x745031, 1); g.fillRoundedRect(Math.round(p.x - 34), wallTop - 26, 68, 16, 5);
+          g.lineStyle(2, 0x3f2818, 0.55); g.strokeRoundedRect(Math.round(p.x - 34), wallTop - 26, 68, 16, 5);
+          g.fillStyle(0xd5b98c, 0.45); g.fillRect(Math.round(p.x - 28), wallTop - 22, 56, 4);
         }
       } else if (o.kind === 'tree') {
         const s = o.scale || 1;
-        g.fillStyle(0x000000, 0.14); g.fillEllipse(p.x, p.y + 6, 58 * s, 18 * s);
-        g.fillStyle(0x6e492d, 1); g.fillRoundedRect(p.x - 7 * s, p.y - 46 * s, 14 * s, 34 * s, 6);
-        g.fillStyle(0x2c512f, 1); g.fillCircle(p.x, p.y - 80 * s, 28 * s);
-        g.fillStyle(0x36683b, 1); g.fillCircle(p.x - 22 * s, p.y - 62 * s, 22 * s);
-        g.fillStyle(0x36683b, 1); g.fillCircle(p.x + 22 * s, p.y - 62 * s, 22 * s);
-        g.fillStyle(0x4e8552, 1); g.fillCircle(p.x, p.y - 52 * s, 20 * s);
-        g.fillStyle(0x78b06d, 0.35); g.fillCircle(p.x - 10 * s, p.y - 88 * s, 10 * s);
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 6, 58 * s, 18 * s);
+        g.fillStyle(0x6e492d, 1); g.fillRoundedRect(p.x - 7 * s, p.y - 48 * s, 14 * s, 36 * s, 5);
+        g.fillStyle(0x274d2d, 1); g.fillCircle(p.x, p.y - 82 * s, 26 * s);
+        g.fillStyle(0x35693c, 1); g.fillCircle(p.x - 20 * s, p.y - 64 * s, 20 * s);
+        g.fillStyle(0x35693c, 1); g.fillCircle(p.x + 20 * s, p.y - 64 * s, 20 * s);
+        g.fillStyle(0x508755, 1); g.fillCircle(p.x, p.y - 54 * s, 18 * s);
+        g.fillStyle(0x8ac17a, 0.24); g.fillCircle(p.x - 8 * s, p.y - 88 * s, 9 * s);
       } else if (o.kind === 'lamp') {
         g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 4, 22, 8);
         g.lineStyle(4, 0x51616c, 1); g.lineBetween(p.x, p.y - 38, p.x, p.y - 6);
