@@ -211,9 +211,15 @@ export default class OnlineScene extends Phaser.Scene {
 
     const props = [
       { kind: 'lamp', x: 116, y: 602 },
+      { kind: 'lamp', x: 1218, y: 786 },
       { kind: 'barrel', x: 676, y: 474 }, { kind: 'barrel', x: 708, y: 474 },
       { kind: 'crate', x: 1060, y: 502 }, { kind: 'barrel', x: 1094, y: 520 },
       { kind: 'barrel', x: 454, y: 874 }, { kind: 'crate', x: 1200, y: 946 },
+      { kind: 'stall', x: 770, y: 366, cloth: 0xc45747 },
+      { kind: 'stall', x: 690, y: 362, cloth: 0xcfb15c },
+      { kind: 'sign', x: 614, y: 612 },
+      { kind: 'bush', x: 604, y: 474 }, { kind: 'bush', x: 930, y: 480 }, { kind: 'bush', x: 852, y: 812 },
+      { kind: 'bush', x: 1030, y: 618 }, { kind: 'bush', x: 582, y: 222 },
     ];
     for (const p of props) this.spawnTownDetail(p);
   }
@@ -273,6 +279,14 @@ export default class OnlineScene extends Phaser.Scene {
           g.lineTo(left + w - roofInset + 4, yy);
           g.strokePath();
         }
+        g.lineStyle(3, 0xf1dfbb, 0.28);
+        g.beginPath();
+        g.moveTo(left + roofInset + 8, top + 18);
+        g.lineTo(p.x, roofTop + 8);
+        g.lineTo(left + w - roofInset - 8, top + 18);
+        g.strokePath();
+        g.fillStyle(Phaser.Display.Color.IntegerToColor(o.wall).lighten(10).color, 0.22);
+        g.fillRect(left + 8, top + wallH + 4, w - 16, 8);
 
         const doorW = Math.max(18, Math.round(w * 0.13));
         const doorH = Math.max(26, Math.round(h * 0.22));
@@ -303,6 +317,22 @@ export default class OnlineScene extends Phaser.Scene {
         g.lineStyle(4, 0x51616c, 1); g.lineBetween(p.x, p.y - 38, p.x, p.y - 6);
         g.fillStyle(0x87c7db, 0.95); g.fillCircle(p.x, p.y - 44, 8);
         g.lineStyle(2, 0xd9f3ff, 0.4); g.strokeCircle(p.x, p.y - 44, 11);
+      } else if (o.kind === 'stall') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 5, 54, 14);
+        g.lineStyle(4, 0x714f31, 1); g.lineBetween(p.x - 18, p.y - 2, p.x - 18, p.y - 28); g.lineBetween(p.x + 18, p.y - 2, p.x + 18, p.y - 28);
+        g.fillStyle(o.cloth || 0xc45747, 1); g.fillRoundedRect(p.x - 24, p.y - 34, 48, 14, 5);
+        g.lineStyle(2, 0x5b2d2d, 0.45); g.strokeRoundedRect(p.x - 24, p.y - 34, 48, 14, 5);
+        g.fillStyle(0xd1b27b, 1); g.fillRect(p.x - 18, p.y - 16, 36, 12);
+      } else if (o.kind === 'sign') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 4, 24, 8);
+        g.lineStyle(4, 0x6b4b2e, 1); g.lineBetween(p.x, p.y - 28, p.x, p.y - 4);
+        g.fillStyle(0xd9c396, 1); g.fillRoundedRect(p.x - 14, p.y - 38, 28, 16, 4);
+        g.lineStyle(2, 0x6b4b2e, 0.6); g.strokeRoundedRect(p.x - 14, p.y - 38, 28, 16, 4);
+      } else if (o.kind === 'bush') {
+        g.fillStyle(0x000000, 0.1); g.fillEllipse(p.x, p.y + 4, 28, 10);
+        g.fillStyle(0x3f713f, 1); g.fillCircle(p.x - 8, p.y - 4, 10);
+        g.fillStyle(0x528951, 1); g.fillCircle(p.x + 2, p.y - 7, 11);
+        g.fillStyle(0x6aa463, 0.45); g.fillCircle(p.x + 7, p.y - 10, 6);
       } else if (o.kind === 'barrel') {
         g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 3, 20, 8);
         g.fillStyle(0x7f5a35, 1); g.fillRoundedRect(p.x - 8, p.y - 16, 16, 18, 5);
