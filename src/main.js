@@ -12,7 +12,7 @@ const config = {
   height: CONFIG.height,
   backgroundColor: CONFIG.colors.bg,
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.ENVELOP,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   // DOM support lets the lobby use real <input> fields (name / party code).
