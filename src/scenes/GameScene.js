@@ -411,66 +411,95 @@ export default class GameScene extends Phaser.Scene {
 
       if (o.kind === 'house') {
         const w = o.w, h = o.h;
-        const left = p.x - w / 2;
+        const frontW = Math.round(w * 0.78);
+        const sideW = Math.round(w * 0.22);
+        const frontLeft = p.x - frontW / 2;
+        const frontRight = p.x + frontW / 2;
+        const sideRight = frontRight + sideW;
         const top = p.y - h;
         const wallTop = top + Math.round(h * 0.42);
-        const roofTop = top - Math.round(h * 0.18);
+        const roofPeakY = top - Math.round(h * 0.18);
+        const roofLeftX = frontLeft + Math.round(frontW * 0.14);
+        const roofRightX = frontRight - Math.round(frontW * 0.14);
         const eaveY = wallTop + 8;
-        const roofInset = Math.round(w * 0.15);
+        const roofThickness = 12;
         const doorW = Math.max(20, Math.round(w * 0.13));
         const doorH = Math.max(30, Math.round(h * 0.24));
         const wallShade = Phaser.Display.Color.IntegerToColor(o.wall).darken(14).color;
+        const sideShade = Phaser.Display.Color.IntegerToColor(o.wall).darken(28).color;
         const wallLight = Phaser.Display.Color.IntegerToColor(o.wall).lighten(10).color;
         const roofDark = Phaser.Display.Color.IntegerToColor(o.roof).darken(28).color;
+        const roofSide = Phaser.Display.Color.IntegerToColor(o.roof).darken(40).color;
 
-        g.fillStyle(0x000000, 0.18); g.fillEllipse(p.x, p.y + 8, w * 0.74, 22);
+        g.fillStyle(0x000000, 0.18); g.fillEllipse(p.x + sideW * 0.2, p.y + 8, w * 0.82, 24);
 
         if (o.deck) {
-          g.fillStyle(0xc89a62, 1); g.fillRoundedRect(left - 22, p.y - 18, w + 44, 24, 8);
-          g.lineStyle(3, 0x7d5a36, 0.5); g.strokeRoundedRect(left - 22, p.y - 18, w + 44, 24, 8);
-          for (let xx = left - 10; xx < left + w + 20; xx += 18) g.lineBetween(xx, p.y - 16, xx, p.y + 4);
+          g.fillStyle(0xc89a62, 1); g.fillRoundedRect(frontLeft - 22, p.y - 18, frontW + sideW + 44, 24, 8);
+          g.lineStyle(3, 0x7d5a36, 0.5); g.strokeRoundedRect(frontLeft - 22, p.y - 18, frontW + sideW + 44, 24, 8);
+          for (let xx = frontLeft - 10; xx < sideRight + 20; xx += 18) g.lineBetween(xx, p.y - 16, xx, p.y + 4);
         }
 
-        g.fillStyle(o.wall, 1); g.fillRoundedRect(left, wallTop, w, h - (wallTop - top), 10);
-        g.fillStyle(wallLight, 0.22); g.fillRect(left + 8, wallTop + 4, w - 16, 8);
-        g.fillStyle(wallShade, 1); g.fillRect(left + 10, wallTop + 12, w - 20, 12);
-        g.lineStyle(3, o.trim, 0.58); g.strokeRoundedRect(left, wallTop, w, h - (wallTop - top), 10);
+        g.fillStyle(sideShade, 1);
+        g.beginPath();
+        g.moveTo(frontRight, wallTop);
+        g.lineTo(sideRight, wallTop - 10);
+        g.lineTo(sideRight, p.y);
+        g.lineTo(frontRight, p.y);
+        g.closePath();
+        g.fillPath();
+        g.lineStyle(3, o.trim, 0.45); g.strokePath();
+
+        g.fillStyle(o.wall, 1); g.fillRoundedRect(frontLeft, wallTop, frontW, h - (wallTop - top), 10);
+        g.fillStyle(wallLight, 0.22); g.fillRect(frontLeft + 8, wallTop + 4, frontW - 16, 8);
+        g.fillStyle(wallShade, 1); g.fillRect(frontLeft + 10, wallTop + 12, frontW - 20, 12);
+        g.lineStyle(3, o.trim, 0.58); g.strokeRoundedRect(frontLeft, wallTop, frontW, h - (wallTop - top), 10);
+
+        g.fillStyle(roofSide, 1);
+        g.beginPath();
+        g.moveTo(roofRightX, top + 12);
+        g.lineTo(sideRight + 10, top + 24);
+        g.lineTo(sideRight + 14, eaveY + 2);
+        g.lineTo(frontRight + 10, eaveY + 6);
+        g.closePath();
+        g.fillPath();
 
         g.fillStyle(o.roof, 1);
         g.beginPath();
-        g.moveTo(left - 14, eaveY);
-        g.lineTo(left + roofInset, top + 12);
-        g.lineTo(p.x, roofTop);
-        g.lineTo(left + w - roofInset, top + 12);
-        g.lineTo(left + w + 14, eaveY);
+        g.moveTo(frontLeft - 14, eaveY);
+        g.lineTo(roofLeftX, top + 12);
+        g.lineTo(p.x - 2, roofPeakY);
+        g.lineTo(roofRightX, top + 12);
+        g.lineTo(frontRight + 10, eaveY);
         g.closePath();
         g.fillPath();
 
         g.fillStyle(roofDark, 1);
         g.beginPath();
-        g.moveTo(left - 18, eaveY + 4);
-        g.lineTo(left - 4, eaveY - 4);
-        g.lineTo(left + w + 4, eaveY - 4);
-        g.lineTo(left + w + 18, eaveY + 4);
+        g.moveTo(frontLeft - 16, eaveY + roofThickness / 2);
+        g.lineTo(frontLeft - 4, eaveY - 2);
+        g.lineTo(frontRight + 4, eaveY - 2);
+        g.lineTo(frontRight + 18, eaveY + roofThickness / 2);
+        g.lineTo(frontRight + 10, eaveY + roofThickness);
+        g.lineTo(frontLeft - 10, eaveY + roofThickness);
         g.closePath();
         g.fillPath();
 
         g.lineStyle(3, roofDark, 0.58);
         for (let yy = top + 18; yy < eaveY - 2; yy += 9) {
           g.beginPath();
-          g.moveTo(left + roofInset - 6, yy);
-          g.lineTo(left + w - roofInset + 6, yy);
+          g.moveTo(roofLeftX - 4, yy);
+          g.lineTo(roofRightX + 4, yy);
           g.strokePath();
         }
         g.lineStyle(3, 0xf2e1bc, 0.24);
         g.beginPath();
-        g.moveTo(left + roofInset + 10, top + 20);
-        g.lineTo(p.x, roofTop + 12);
-        g.lineTo(left + w - roofInset - 10, top + 20);
+        g.moveTo(roofLeftX + 10, top + 20);
+        g.lineTo(p.x - 2, roofPeakY + 12);
+        g.lineTo(roofRightX - 10, top + 20);
         g.strokePath();
 
         if (o.chimney) {
-          const cx = left + w * 0.72;
+          const cx = roofRightX - 10;
           g.fillStyle(0x7d6b5e, 1); g.fillRoundedRect(cx, top + 8, 18, 28, 4);
           g.lineStyle(2, 0x54463c, 0.5); g.strokeRoundedRect(cx, top + 8, 18, 28, 4);
         }
@@ -479,9 +508,9 @@ export default class GameScene extends Phaser.Scene {
         g.lineStyle(2, 0x2e1b12, 0.5); g.strokeRoundedRect(p.x - doorW / 2, p.y - doorH - 4, doorW, doorH, 6);
         g.fillStyle(0xe8cf7b, 0.35); g.fillCircle(p.x + doorW * 0.22, p.y - doorH * 0.5 - 4, 2);
 
-        const winW = Math.round(w * 0.15), winH = Math.round(h * 0.13);
+        const winW = Math.round(frontW * 0.18), winH = Math.round(h * 0.13);
         const wy = wallTop + 18;
-        for (const wx of [left + w * 0.24, left + w * 0.76]) {
+        for (const wx of [frontLeft + frontW * 0.26, frontLeft + frontW * 0.74]) {
           g.fillStyle(0xbfe5ff, 0.96); g.fillRoundedRect(wx - winW / 2, wy, winW, winH, 5);
           g.lineStyle(2, o.trim, 0.48); g.strokeRoundedRect(wx - winW / 2, wy, winW, winH, 5);
           g.lineBetween(wx, wy + 3, wx, wy + winH - 3);
