@@ -192,9 +192,8 @@ export default class OnlineScene extends Phaser.Scene {
   }
 
   drawTownProps() {
-    if (this.townPropLayer) this.townPropLayer.destroy(true);
-    this.townPropLayer = this.add.container(0, 0);
-    this.townPropLayer.setDepth(10);
+    if (this.townPropLayer) this.townPropLayer.forEach((o) => o.g.destroy());
+    this.townPropLayer = [];
 
     const houses = [
       [560, 756, 0x714334], [952, 748, 0x714334], [1066, 466, 0x6c4032],
@@ -212,28 +211,45 @@ export default class OnlineScene extends Phaser.Scene {
   }
 
   spawnHouseProp(x, y, roofColor) {
-    const p = project(x, y);
-    const c = this.add.container(p.x, p.y).setDepth(18 + (x + y) * 0.018);
-    const shadow = this.add.ellipse(0, 0, 86, 28, 0x000000, 0.18).setOrigin(0.5, 0.5);
-    const body = this.add.rectangle(0, -34, 72, 52, 0xd7c6a4, 1).setStrokeStyle(2, 0x5d4635, 0.35).setOrigin(0.5, 1);
-    const roof = this.add.triangle(0, -86, -44, 18, 0, -22, 44, 18, roofColor, 1).setStrokeStyle(2, 0x3e241b, 0.45);
-    const awning = this.add.rectangle(0, -56, 58, 10, 0xf0e1bf, 0.95).setOrigin(0.5, 0.5);
-    const door = this.add.rectangle(0, -20, 14, 24, 0x6c4a33, 1).setOrigin(0.5, 1);
-    c.add([shadow, body, roof, awning, door]);
-    this.townPropLayer.add(c);
+    const g = this.add.graphics();
+    this.townPropLayer.push({ kind: 'house', x, y, roofColor, g });
   }
 
   spawnTreeProp(x, y) {
-    const p = project(x, y);
-    const c = this.add.container(p.x, p.y).setDepth(18 + (x + y) * 0.018);
-    const shadow = this.add.ellipse(0, 0, 58, 18, 0x000000, 0.16).setOrigin(0.5, 0.5);
-    const trunk = this.add.rectangle(0, -18, 12, 30, 0x6a4628, 1).setOrigin(0.5, 1);
-    const crownBack = this.add.circle(0, -58, 26, 0x274c30, 1);
-    const crownLeft = this.add.circle(-18, -46, 18, 0x345f39, 1);
-    const crownRight = this.add.circle(18, -46, 18, 0x345f39, 1);
-    const crownFront = this.add.circle(0, -38, 22, 0x4f8352, 1);
-    c.add([shadow, trunk, crownBack, crownLeft, crownRight, crownFront]);
-    this.townPropLayer.add(c);
+    const g = this.add.graphics();
+    this.townPropLayer.push({ kind: 'tree', x, y, g });
+  }
+
+  updateTownProps() {
+    if (!this.townPropLayer || !this.townPropLayer.length) return;
+    for (const o of this.townPropLayer) {
+      const g = o.g;
+      const p = project(o.x, o.y);
+      g.clear();
+      g.setDepth(bodyDepth(o.x, o.y));
+      if (o.kind === 'house') {
+        g.fillStyle(0x000000, 0.16); g.fillEllipse(p.x, p.y - 2, 84, 26);
+        g.fillStyle(0xd7c6a4, 1); g.fillRoundedRect(p.x - 34, p.y - 72, 68, 48, 8);
+        g.lineStyle(2, 0x6b5643, 0.45); g.strokeRoundedRect(p.x - 34, p.y - 72, 68, 48, 8);
+        g.fillStyle(o.roofColor, 1);
+        g.beginPath();
+        g.moveTo(p.x - 42, p.y - 72); g.lineTo(p.x, p.y - 104); g.lineTo(p.x + 42, p.y - 72); g.closePath();
+        g.fillPath();
+        g.lineStyle(2, 0x3e241b, 0.45);
+        g.beginPath();
+        g.moveTo(p.x - 42, p.y - 72); g.lineTo(p.x, p.y - 104); g.lineTo(p.x + 42, p.y - 72);
+        g.strokePath();
+        g.fillStyle(0x6c4a33, 1); g.fillRoundedRect(p.x - 8, p.y - 46, 16, 22, 4);
+        g.fillStyle(0xf0e1bf, 0.95); g.fillRect(p.x - 22, p.y - 62, 44, 7);
+      } else {
+        g.fillStyle(0x000000, 0.14); g.fillEllipse(p.x, p.y - 1, 58, 18);
+        g.fillStyle(0x6a4628, 1); g.fillRect(p.x - 5, p.y - 42, 10, 28);
+        g.fillStyle(0x274c30, 1); g.fillCircle(p.x, p.y - 66, 24);
+        g.fillStyle(0x345f39, 1); g.fillCircle(p.x - 16, p.y - 52, 16);
+        g.fillStyle(0x345f39, 1); g.fillCircle(p.x + 16, p.y - 52, 16);
+        g.fillStyle(0x4f8352, 1); g.fillCircle(p.x, p.y - 46, 18);
+      }
+    }
   }
 
   // Shrines: cyan obelisk once discovered (server-tracked), dim & locked until then.
@@ -418,6 +434,7 @@ export default class OnlineScene extends Phaser.Scene {
     }
 
     if (this.localPos) { const cam = this.cameras.main; const sp = project(this.localPos.x, this.localPos.y); cam.scrollX += (sp.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (sp.y - cam.height / 2 - cam.scrollY) * 0.15; }
+    this.updateTownProps();
   }
 
   nearestEnemy(snap, x, y) {
