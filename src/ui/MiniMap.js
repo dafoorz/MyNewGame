@@ -14,8 +14,8 @@ export default class MiniMap {
     const s    = this.size;
 
     // Centre of the minimap square, in screen (game) coords.
-    this.cx = opts.x ?? (CONFIG.width - s / 2 - 6);
-    this.cy = opts.y ?? (BTN_TOP_Y + s / 2 - 2);
+    this.cx = opts.x ?? (CONFIG.width - 44 - 22 - 12 - s / 2);
+    this.cy = opts.y ?? (BTN_TOP_Y + s / 2);
 
     // A Container with scrollFactor(0) keeps everything fixed on screen —
     // the same pattern used by MapPanel, SettingsPanel, etc.
