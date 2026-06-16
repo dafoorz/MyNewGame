@@ -228,7 +228,7 @@ export default class OnlineScene extends Phaser.Scene {
       g.clear();
       g.setDepth(bodyDepth(o.x, o.y));
       if (o.kind === 'house') {
-        g.fillStyle(0x000000, 0.16); g.fillEllipse(p.x, p.y - 2, 84, 26);
+        g.fillStyle(0x000000, 0.18); g.fillEllipse(p.x, p.y + 8, 92, 28);
         g.fillStyle(0xd7c6a4, 1); g.fillRoundedRect(p.x - 34, p.y - 72, 68, 48, 8);
         g.lineStyle(2, 0x6b5643, 0.45); g.strokeRoundedRect(p.x - 34, p.y - 72, 68, 48, 8);
         g.fillStyle(o.roofColor, 1);
@@ -242,7 +242,7 @@ export default class OnlineScene extends Phaser.Scene {
         g.fillStyle(0x6c4a33, 1); g.fillRoundedRect(p.x - 8, p.y - 46, 16, 22, 4);
         g.fillStyle(0xf0e1bf, 0.95); g.fillRect(p.x - 22, p.y - 62, 44, 7);
       } else {
-        g.fillStyle(0x000000, 0.14); g.fillEllipse(p.x, p.y - 1, 58, 18);
+        g.fillStyle(0x000000, 0.16); g.fillEllipse(p.x, p.y + 6, 64, 20);
         g.fillStyle(0x6a4628, 1); g.fillRect(p.x - 5, p.y - 42, 10, 28);
         g.fillStyle(0x274c30, 1); g.fillCircle(p.x, p.y - 66, 24);
         g.fillStyle(0x345f39, 1); g.fillCircle(p.x - 16, p.y - 52, 16);
