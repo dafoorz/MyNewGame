@@ -144,30 +144,18 @@ export default class OnlineScene extends Phaser.Scene {
       g.fillStyle(0x5b7f43, 0.85); g.fillRect(796, 272, 52, 38);
       g.fillStyle(0x7a3430, 0.85); g.fillRect(662, 320, 82, 42);
       g.fillStyle(0x4a6d78, 0.85); g.fillRect(752, 320, 74, 42);
-      const houses = [[500,660,118,86,0x714334],[916,654,118,86,0x714334],[1010,374,124,92,0x6c4032],[330,360,118,84,0x6f4934],[1110,760,126,90,0x6b3b30],[260,700,122,88,0x70523a]];
-      for (const [x, y, w, h, roof] of houses) {
-        g.fillStyle(0xc7b28a, 0.96); g.fillRoundedRect(x, y, w, h, 14);
-        g.fillStyle(roof, 0.98); g.beginPath(); g.moveTo(x - 10, y + 20); g.lineTo(x + w / 2, y - 20); g.lineTo(x + w + 10, y + 20); g.lineTo(x + w - 6, y + 34); g.lineTo(x + 6, y + 34); g.closePath(); g.fillPath();
-        g.lineStyle(2, 0x4a3025, 0.35); g.strokeRoundedRect(x, y, w, h, 14);
-      }
       g.lineStyle(6, 0x5f452e, 0.9);
       for (let x = 120; x <= 340; x += 32) { g.lineBetween(x, 180, x, 230); }
       g.lineBetween(104, 196, 356, 196); g.lineBetween(104, 222, 356, 222);
       for (let x = 1150; x <= 1370; x += 32) { g.lineBetween(x, 856, x, 906); }
       g.lineBetween(1134, 872, 1386, 872); g.lineBetween(1134, 898, 1386, 898);
-      const trees = [[190,150],[260,138],[140,392],[118,690],[210,878],[420,160],[470,860],[575,930],[930,122],[1110,168],[1310,180],[1360,340],[1342,650],[1280,910],[1040,930],[884,866],[340,916],[1240,500],[1000,250],[460,300]];
-      for (const [x, y] of trees) {
-        g.fillStyle(0x5e3f22, 0.95); g.fillRect(x - 5, y + 12, 10, 20);
-        g.fillStyle(0x264b2e, 0.98); g.fillCircle(x, y, 24);
-        g.fillStyle(0x3d6b43, 0.98); g.fillCircle(x + 12, y - 8, 18);
-        g.fillStyle(0x6fa066, 0.4); g.fillCircle(x - 10, y - 12, 12);
-      }
       const patches = [[540,470,38,18],[952,468,36,18],[622,770,46,22],[866,760,42,20],[540,208,48,20],[1180,618,44,22]];
       for (const [x, y, w, h] of patches) {
         g.fillStyle(0x487b48, 0.55); g.fillEllipse(x, y, w, h);
         g.fillStyle(0xc9c36c, 0.35); g.fillEllipse(x + 6, y - 2, w * 0.35, h * 0.35);
       }
       g.lineStyle(8, 0x4f3523, 0.8); g.strokeRect(10, 10, z.size.w - 20, z.size.h - 20);
+      this.drawTownProps();
     } else {
       g.lineStyle(6, z.accent, 1); g.strokeRect(3, 3, z.size.w - 6, z.size.h - 6);
       g.lineStyle(1, z.accent, 0.4);
@@ -201,6 +189,51 @@ export default class OnlineScene extends Phaser.Scene {
 
     this.showBanner(z.name);
     this.localPos = null; // re-anchor to server pos after teleport
+  }
+
+  drawTownProps() {
+    if (this.townPropLayer) this.townPropLayer.destroy(true);
+    this.townPropLayer = this.add.container(0, 0);
+    this.townPropLayer.setDepth(10);
+
+    const houses = [
+      [560, 756, 0x714334], [952, 748, 0x714334], [1066, 466, 0x6c4032],
+      [392, 454, 0x6f4934], [1166, 852, 0x6b3b30], [318, 796, 0x70523a],
+    ];
+    for (const [x, y, roof] of houses) this.spawnHouseProp(x, y, roof);
+
+    const trees = [
+      [190, 150], [260, 138], [140, 392], [118, 690], [210, 878],
+      [420, 160], [470, 860], [575, 930], [930, 122], [1110, 168],
+      [1310, 180], [1360, 340], [1342, 650], [1280, 910], [1040, 930],
+      [884, 866], [340, 916], [1240, 500], [1000, 250], [460, 300],
+    ];
+    for (const [x, y] of trees) this.spawnTreeProp(x, y);
+  }
+
+  spawnHouseProp(x, y, roofColor) {
+    const p = project(x, y);
+    const c = this.add.container(p.x, p.y).setDepth(18 + (x + y) * 0.018);
+    const shadow = this.add.ellipse(0, 0, 86, 28, 0x000000, 0.18).setOrigin(0.5, 0.5);
+    const body = this.add.rectangle(0, -34, 72, 52, 0xd7c6a4, 1).setStrokeStyle(2, 0x5d4635, 0.35).setOrigin(0.5, 1);
+    const roof = this.add.triangle(0, -86, -44, 18, 0, -22, 44, 18, roofColor, 1).setStrokeStyle(2, 0x3e241b, 0.45);
+    const awning = this.add.rectangle(0, -56, 58, 10, 0xf0e1bf, 0.95).setOrigin(0.5, 0.5);
+    const door = this.add.rectangle(0, -20, 14, 24, 0x6c4a33, 1).setOrigin(0.5, 1);
+    c.add([shadow, body, roof, awning, door]);
+    this.townPropLayer.add(c);
+  }
+
+  spawnTreeProp(x, y) {
+    const p = project(x, y);
+    const c = this.add.container(p.x, p.y).setDepth(18 + (x + y) * 0.018);
+    const shadow = this.add.ellipse(0, 0, 58, 18, 0x000000, 0.16).setOrigin(0.5, 0.5);
+    const trunk = this.add.rectangle(0, -18, 12, 30, 0x6a4628, 1).setOrigin(0.5, 1);
+    const crownBack = this.add.circle(0, -58, 26, 0x274c30, 1);
+    const crownLeft = this.add.circle(-18, -46, 18, 0x345f39, 1);
+    const crownRight = this.add.circle(18, -46, 18, 0x345f39, 1);
+    const crownFront = this.add.circle(0, -38, 22, 0x4f8352, 1);
+    c.add([shadow, trunk, crownBack, crownLeft, crownRight, crownFront]);
+    this.townPropLayer.add(c);
   }
 
   // Shrines: cyan obelisk once discovered (server-tracked), dim & locked until then.

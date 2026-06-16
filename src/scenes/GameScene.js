@@ -340,7 +340,7 @@ export default class GameScene extends Phaser.Scene {
   drawTownProps() {
     if (this.townPropLayer) this.townPropLayer.destroy(true);
     this.townPropLayer = this.add.container(0, 0);
-    this.townPropLayer.setDepth(14);
+    this.townPropLayer.setDepth(10);
 
     const houses = [
       [560, 756, 0x714334], [952, 748, 0x714334], [1066, 466, 0x6c4032],
@@ -359,7 +359,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnHouseProp(x, y, roofColor) {
     const p = project(x, y);
-    const c = this.add.container(p.x, p.y).setDepth(12 + (x + y) * 0.018);
+    const c = this.add.container(p.x, p.y).setDepth(18 + (x + y) * 0.018);
     const shadow = this.add.ellipse(0, 0, 86, 28, 0x000000, 0.18).setOrigin(0.5, 0.5);
     const body = this.add.rectangle(0, -34, 72, 52, 0xd7c6a4, 1).setStrokeStyle(2, 0x5d4635, 0.35).setOrigin(0.5, 1);
     const roof = this.add.triangle(0, -86, -44, 18, 0, -22, 44, 18, roofColor, 1).setStrokeStyle(2, 0x3e241b, 0.45);
@@ -371,7 +371,7 @@ export default class GameScene extends Phaser.Scene {
 
   spawnTreeProp(x, y) {
     const p = project(x, y);
-    const c = this.add.container(p.x, p.y).setDepth(12 + (x + y) * 0.018);
+    const c = this.add.container(p.x, p.y).setDepth(18 + (x + y) * 0.018);
     const shadow = this.add.ellipse(0, 0, 58, 18, 0x000000, 0.16).setOrigin(0.5, 0.5);
     const trunk = this.add.rectangle(0, -18, 12, 30, 0x6a4628, 1).setOrigin(0.5, 1);
     const crownBack = this.add.circle(0, -58, 26, 0x274c30, 1);
