@@ -38,14 +38,21 @@ export default class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
+  preload() {
+    this.load.image('townBg', 'assets/town-bg.jpeg');
+  }
+
   create(data) {
     this.isTouch = this.sys.game.device.input.touch || 'ontouchstart' in window;
 
     // Isometric world container: all world GRAPHICS live here and inherit the
     // iso transform (ground, bodies, telegraphs, projectiles, FX). Text and
     // health bars stay in scene space, positioned via project() so they stay
-    // crisp. The simulation itself is unchanged — flat world coordinates.
+    // crisp. The simulation itself is unchanged â€” flat world coordinates.
     this.world = applyIso(this.add.container(0, 0));
+    this.townBg = null;
+    this.townBlockers = [];
+    this.townBlockerGfx = null;
 
     // --- chosen class -> player build ---
     this.classKey = (data && data.classKey) || DEFAULT_CLASS;
@@ -72,7 +79,7 @@ export default class GameScene extends Phaser.Scene {
       attackRange: this.basic.range,
     });
     // The player BODY is an upright billboard in scene space (not the squashed
-    // world container) — only its ground position is projected.
+    // world container) â€” only its ground position is projected.
 
     // Restore this class's saved progress on this device (if any).
     const saved = loadProgress(this.classKey);
@@ -209,7 +216,7 @@ export default class GameScene extends Phaser.Scene {
     if (z.raid) {
       this.raidState = 'wave1';
       this.spawnRaidWave(12);
-      this.showZoneBanner('Ancient Bastion — Defeat the enemies!');
+      this.showZoneBanner('Ancient Bastion â€” Defeat the enemies!');
     } else if (z.boss) {
       this.spawnBossEncounter(bounds);
     } else if (z.mobTypes) {
@@ -217,6 +224,14 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.portalLock = true;
+    if (this.zoneKey === 'town') {
+      this.setupTownBackground(z);
+      this.setupTownBlockers();
+    } else {
+      this.hideTownBackground();
+      this.townBlockers = [];
+    }
+
     this.showZoneBanner(z.name);
     this.centerCamera(true);
   }
@@ -228,129 +243,7 @@ export default class GameScene extends Phaser.Scene {
     g.fillRect(0, 0, z.size.w, z.size.h);
 
     if (this.zoneKey === 'town') {
-      // Riverwood: hand-painted readable hub layout with roads, grass, river edge,
-      // plaza, market area, and decorative trees that survive the iso projection.
-      g.fillStyle(0x25472d, 1);
-      g.fillRect(0, 0, z.size.w, z.size.h);
-
-      // outer meadow bands
-      g.fillStyle(0x2e5a38, 1); g.fillRect(34, 34, z.size.w - 68, z.size.h - 68);
-      g.fillStyle(0x3a6a42, 0.95); g.fillRect(86, 86, z.size.w - 172, z.size.h - 172);
-
-      // river/cove edge on the north-west side
-      g.fillStyle(0x24505f, 0.95);
-      g.beginPath();
-      g.moveTo(0, 0);
-      g.lineTo(420, 0);
-      g.lineTo(300, 110);
-      g.lineTo(220, 210);
-      g.lineTo(110, 260);
-      g.lineTo(0, 300);
-      g.closePath();
-      g.fillPath();
-      g.fillStyle(0x3d8795, 0.9);
-      g.beginPath();
-      g.moveTo(0, 34);
-      g.lineTo(362, 34);
-      g.lineTo(266, 126);
-      g.lineTo(198, 198);
-      g.lineTo(100, 244);
-      g.lineTo(0, 278);
-      g.closePath();
-      g.fillPath();
-
-      // central roads
-      g.lineStyle(72, 0x947048, 1); g.lineCap = 'round';
-      g.beginPath();
-      g.moveTo(70, 525);
-      g.lineTo(330, 525);
-      g.lineTo(520, 540);
-      g.lineTo(760, 560);
-      g.lineTo(980, 540);
-      g.lineTo(1200, 530);
-      g.lineTo(1430, 530);
-      g.strokePath();
-
-      g.lineStyle(64, 0x8a6840, 1);
-      g.beginPath();
-      g.moveTo(750, 120);
-      g.lineTo(748, 260);
-      g.lineTo(752, 420);
-      g.lineTo(760, 560);
-      g.lineTo(742, 700);
-      g.lineTo(720, 860);
-      g.lineTo(706, 980);
-      g.strokePath();
-
-      // road highlights
-      g.lineStyle(16, 0xb38a57, 0.65);
-      g.beginPath();
-      g.moveTo(90, 525); g.lineTo(1430, 525); g.strokePath();
-      g.beginPath();
-      g.moveTo(752, 120); g.lineTo(720, 980); g.strokePath();
-
-      // plaza around waystone
-      g.fillStyle(0x7e684a, 1); g.fillCircle(750, 560, 126);
-      g.fillStyle(0x99815f, 1); g.fillCircle(750, 560, 90);
-      g.lineStyle(5, 0xcdb58a, 0.7);
-      for (let r in [52, 88, 122]) {}
-      [52, 88, 122].forEach((r) => g.strokeCircle(750, 560, r));
-
-      // market square near the shop
-      g.fillStyle(0x6d5338, 0.95); g.fillRoundedRect(620, 255, 260, 156, 18);
-      g.lineStyle(4, 0xb79058, 0.8); g.strokeRoundedRect(620, 255, 260, 156, 18);
-      g.fillStyle(0xb5443c, 0.85); g.fillRect(650, 272, 74, 38);
-      g.fillStyle(0xcfb15c, 0.85); g.fillRect(730, 272, 60, 38);
-      g.fillStyle(0x5b7f43, 0.85); g.fillRect(796, 272, 52, 38);
-      g.fillStyle(0x7a3430, 0.85); g.fillRect(662, 320, 82, 42);
-      g.fillStyle(0x4a6d78, 0.85); g.fillRect(752, 320, 74, 42);
-
-      // simple house roofs / town blocks for readability
-      const houses = [
-        [500, 660, 118, 86, 0x714334], [916, 654, 118, 86, 0x714334],
-        [1010, 374, 124, 92, 0x6c4032], [330, 360, 118, 84, 0x6f4934],
-        [1110, 760, 126, 90, 0x6b3b30], [260, 700, 122, 88, 0x70523a],
-      ];
-      for (const [x, y, w, h, roof] of houses) {
-        g.fillStyle(0xc7b28a, 0.96); g.fillRoundedRect(x, y, w, h, 14);
-        g.fillStyle(roof, 0.98);
-        g.beginPath();
-        g.moveTo(x - 10, y + 20); g.lineTo(x + w / 2, y - 20); g.lineTo(x + w + 10, y + 20); g.lineTo(x + w - 6, y + 34); g.lineTo(x + 6, y + 34); g.closePath();
-        g.fillPath();
-        g.lineStyle(2, 0x4a3025, 0.35); g.strokeRoundedRect(x, y, w, h, 14);
-      }
-
-      // fences toward exits
-      g.lineStyle(6, 0x5f452e, 0.9);
-      for (let x = 120; x <= 340; x += 32) { g.lineBetween(x, 180, x, 230); }
-      g.lineBetween(104, 196, 356, 196); g.lineBetween(104, 222, 356, 222);
-      for (let x = 1150; x <= 1370; x += 32) { g.lineBetween(x, 856, x, 906); }
-      g.lineBetween(1134, 872, 1386, 872); g.lineBetween(1134, 898, 1386, 898);
-
-      // trees: trunk + two canopy circles
-      const trees = [
-        [190, 150], [260, 138], [140, 392], [118, 690], [210, 878],
-        [420, 160], [470, 860], [575, 930], [930, 122], [1110, 168],
-        [1310, 180], [1360, 340], [1342, 650], [1280, 910], [1040, 930],
-        [884, 866], [340, 916], [1240, 500], [1000, 250], [460, 300],
-      ];
-      for (const [x, y] of trees) {
-        g.fillStyle(0x5e3f22, 0.95); g.fillRect(x - 5, y + 12, 10, 20);
-        g.fillStyle(0x264b2e, 0.98); g.fillCircle(x, y, 24);
-        g.fillStyle(0x3d6b43, 0.98); g.fillCircle(x + 12, y - 8, 18);
-        g.fillStyle(0x6fa066, 0.4); g.fillCircle(x - 10, y - 12, 12);
-      }
-
-      // flower patches / visual breakup
-      const patches = [
-        [540, 470, 38, 18], [952, 468, 36, 18], [622, 770, 46, 22], [866, 760, 42, 20], [540, 208, 48, 20], [1180, 618, 44, 22],
-      ];
-      for (const [x, y, w, h] of patches) {
-        g.fillStyle(0x487b48, 0.55); g.fillEllipse(x, y, w, h);
-        g.fillStyle(0xc9c36c, 0.35); g.fillEllipse(x + 6, y - 2, w * 0.35, h * 0.35);
-      }
-
-      g.lineStyle(8, 0x4f3523, 0.8);
+      g.lineStyle(8, 0x4f3523, 0.55);
       g.strokeRect(10, 10, z.size.w - 20, z.size.h - 20);
       return;
     }
@@ -360,6 +253,60 @@ export default class GameScene extends Phaser.Scene {
     g.lineStyle(1, z.accent, 0.4);
     for (let x = 80; x < z.size.w; x += 80) g.lineBetween(x, 0, x, z.size.h);
     for (let y = 80; y < z.size.h; y += 80) g.lineBetween(0, y, z.size.w, y);
+  }
+
+  setupTownBackground(z) {
+    if (!this.townBg) {
+      this.townBg = this.add.image(0, 0, 'townBg')
+        .setOrigin(0, 0)
+        .setDepth(-1000);
+      this.world.add(this.townBg);
+    }
+    this.townBg
+      .setVisible(true)
+      .setPosition(0, 0)
+      .setDisplaySize(z.size.w, z.size.h);
+  }
+
+  hideTownBackground() {
+    if (this.townBg) this.townBg.setVisible(false);
+  }
+
+  setupTownBlockers() {
+    this.townBlockers = [
+      { x: 165,  y: 150, w: 175, h: 170 },
+      { x: 560,  y: 95,  w: 130, h: 120 },
+      { x: 865,  y: 130, w: 200, h: 165 },
+      { x: 170,  y: 430, w: 145, h: 135 },
+      { x: 1110, y: 465, w: 150, h: 135 },
+      { x: 160,  y: 750, w: 185, h: 165 },
+      { x: 1010, y: 760, w: 245, h: 175 },
+      { x: 610,  y: 770, w: 280, h: 120 },
+      { x: 1200, y: 95,  w: 190, h: 150 },
+    ];
+  }
+
+  resolveTownCollision() {
+    if (this.zoneKey !== 'town' || !this.townBlockers?.length) return;
+
+    const p = this.player;
+    const r = p.radius;
+
+    for (const b of this.townBlockers) {
+      const nearestX = Phaser.Math.Clamp(p.x, b.x, b.x + b.w);
+      const nearestY = Phaser.Math.Clamp(p.y, b.y, b.y + b.h);
+      const dx = p.x - nearestX;
+      const dy = p.y - nearestY;
+      const d2 = dx * dx + dy * dy;
+
+      if (d2 < r * r) {
+        const overlapX = r - Math.abs(dx || 0.0001);
+        const overlapY = r - Math.abs(dy || 0.0001);
+
+        if (overlapX < overlapY) p.x += dx < 0 ? -overlapX : overlapX;
+        else p.y += dy < 0 ? -overlapY : overlapY;
+      }
+    }
   }
 
   drawPortals() {
@@ -385,7 +332,7 @@ export default class GameScene extends Phaser.Scene {
       g.fillStyle(0x6a4a1a, 0.5); g.fillCircle(shop.x, shop.y, 34);
       g.lineStyle(3, 0xffe066, 0.9); g.strokeCircle(shop.x, shop.y, 34);
       const ssp = project(shop.x, shop.y);
-      const slabel = this.add.text(ssp.x, ssp.y - 50, '🛒 Market (B)', {
+      const slabel = this.add.text(ssp.x, ssp.y - 50, 'ðŸ›’ Market (B)', {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '14px', fontStyle: 'bold',
         color: '#ffe066', stroke: '#06121c', strokeThickness: 4,
       }).setOrigin(0.5).setDepth(40);
@@ -407,7 +354,7 @@ export default class GameScene extends Phaser.Scene {
       // little obelisk
       g.fillStyle(col, known ? 0.9 : 0.5);
       g.fillRect(w.x - 5, w.y - 18, 10, 30);
-      const label = this.add.text(w.x, w.y - 34, (known ? '◈ ' : '🔒 ') + w.name, {
+      const label = this.add.text(w.x, w.y - 34, (known ? 'â—ˆ ' : 'ðŸ”’ ') + w.name, {
         fontFamily: 'Segoe UI, sans-serif', fontSize: '11px', fontStyle: 'bold',
         color: known ? '#bff0ff' : '#8b93ad', stroke: '#06121c', strokeThickness: 3,
       }).setOrigin(0.5).setDepth(2);
@@ -460,7 +407,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Boss telegraphs are ground decals → they belong in the iso world layer so
+  // Boss telegraphs are ground decals â†’ they belong in the iso world layer so
   // they distort onto the floor. Bodies stay upright in scene space.
   isoAdopt(e) {
     if (e.telegraphGfx) this.world.add(e.telegraphGfx);
@@ -551,7 +498,7 @@ export default class GameScene extends Phaser.Scene {
       const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
       if (this.inventory.length < INV_CAP) {
         this.inventory.push(drop);
-        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, 'âœ¦ ' + drop.name, rarityColor(drop.rarity));
       }
     }
     this.mobs = this.mobs.filter((m) => { if (m.summoned) { this.aggro.remove(m); m.destroy(); return false; } return true; });
@@ -756,7 +703,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // What a mob should attack: the nearest player-side entity. Minions are
-  // treated identically to the player — no taunt preference, just closest wins
+  // treated identically to the player â€” no taunt preference, just closest wins
   // (a stealthed player isn't a valid target).
   mobTarget(mob) {
     let best = null, bd = Infinity;
@@ -979,7 +926,7 @@ export default class GameScene extends Phaser.Scene {
     if (drop) {
       if (this.inventory.length < INV_CAP) {
         this.inventory.push(drop);
-        this.spawnText(mob.x, mob.y - 30, '✦ ' + drop.name, rarityColor(drop.rarity));
+        this.spawnText(mob.x, mob.y - 30, 'âœ¦ ' + drop.name, rarityColor(drop.rarity));
         if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
       } else {
         this.spawnText(mob.x, mob.y - 30, 'Backpack full!', '#ff7a7a');
@@ -1094,6 +1041,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.joy.active && (this.move.x !== 0 || this.move.y !== 0)) {
         const w = dirToWorld(this.move.x, this.move.y);
         this.player.moveBy(w.x, w.y, dt);
+        this.resolveTownCollision();
       } else {
         let mx = 0, my = 0;
         const b = this.settings.binds;
@@ -1106,6 +1054,7 @@ export default class GameScene extends Phaser.Scene {
         if (mx !== 0 || my !== 0) {
           const w = dirToWorld(mx, my);
           this.player.moveBy(w.x, w.y, dt);
+          this.resolveTownCollision();
         }
       }
     }
@@ -1188,10 +1137,10 @@ export default class GameScene extends Phaser.Scene {
       const drop = rollItem({ ilvl: loot.ilvl, rarityBoost: loot.rarityBoost });
       if (this.inventory.length < INV_CAP) {
         this.inventory.push(drop);
-        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, '✦ ' + drop.name, rarityColor(drop.rarity));
+        this.spawnText(this.player.x + (i - (loot.count - 1) / 2) * 64, this.player.y - 40, 'âœ¦ ' + drop.name, rarityColor(drop.rarity));
       } else full = true;
     }
-    if (full) this.spawnText(this.player.x, this.player.y - 100, 'Backpack full — make room!', '#ff7a7a');
+    if (full) this.spawnText(this.player.x, this.player.y - 100, 'Backpack full â€” make room!', '#ff7a7a');
     // Despawn leftover summoned adds.
     this.mobs = this.mobs.filter((m) => { if (m.summoned) { this.aggro.remove(m); m.destroy(); return false; } return true; });
     if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
@@ -1285,7 +1234,7 @@ export default class GameScene extends Phaser.Scene {
     const setX = CONFIG.width - 44, setY = 130;
     const setBg = this.add.circle(setX, setY, 22, 0x32405e, 0.9).setStrokeStyle(2, 0xb8a4ff, 0.8)
       .setDepth(70).setScrollFactor(0).setInteractive();
-    this.add.text(setX, setY, '⚙', { fontFamily: 'Segoe UI', fontSize: '18px', color: '#b8a4ff' })
+    this.add.text(setX, setY, 'âš™', { fontFamily: 'Segoe UI', fontSize: '18px', color: '#b8a4ff' })
       .setOrigin(0.5).setDepth(71).setScrollFactor(0);
     setBg.on('pointerdown', () => this.settings.toggle());
     this.settingsBtn = { x: setX, y: setY, r: 22 };
@@ -1466,7 +1415,7 @@ export default class GameScene extends Phaser.Scene {
     if (!item) return;
     this.gold -= cost;
     this.inventory.push(item);
-    this.spawnText(this.player.x, this.player.y - 40, '✦ ' + item.name, rarityColor(item.rarity));
+    this.spawnText(this.player.x, this.player.y - 40, 'âœ¦ ' + item.name, rarityColor(item.rarity));
     this.persist();
     if (this.invPanel && this.invPanel.open) this.invPanel.refresh();
   }
@@ -1502,7 +1451,7 @@ export default class GameScene extends Phaser.Scene {
 
   refreshCharPanel() {
     const s = this.player.stats;
-    this.charTitle.setText(`${this.classDef.name}  —  ${this.progression.statPoints} point(s)`);
+    this.charTitle.setText(`${this.classDef.name}  â€”  ${this.progression.statPoints} point(s)`);
     for (const row of this.charRows) {
       row.label.setText(`${row.attr}  ${s[row.attr]}   (${row.desc})`);
       const has = this.progression.statPoints > 0;
@@ -1528,8 +1477,8 @@ export default class GameScene extends Phaser.Scene {
       `XP ${pr.xp}/${pr.xpToNext()}`,
       `Gold ${this.gold.toLocaleString()}`,
       `STR ${s.STR} DEX ${s.DEX} INT ${s.INT} VIT ${s.VIT} AGI ${s.AGI}`,
-      pr.statPoints > 0 ? `>> ${pr.statPoints} stat point(s) — press C` : '',
-      this.skillPointsLeft() > 0 ? `>> ${this.skillPointsLeft()} skill point(s) — press K` : '',
+      pr.statPoints > 0 ? `>> ${pr.statPoints} stat point(s) â€” press C` : '',
+      this.skillPointsLeft() > 0 ? `>> ${this.skillPointsLeft()} skill point(s) â€” press K` : '',
     ].filter(Boolean).join('\n'));
     if (this.treeBadge) this.treeBadge.setColor(this.skillPointsLeft() > 0 ? '#7CFC9A' : '#ffd24a');
 
@@ -1628,4 +1577,4 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(80);
     this.tweens.add({ targets: txt, y: sp.y - 34, alpha: 0, duration: 700, ease: 'Cubic.easeOut', onComplete: () => txt.destroy() });
   }
-}
+        }
