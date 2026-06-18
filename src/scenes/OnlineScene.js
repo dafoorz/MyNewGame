@@ -24,6 +24,17 @@ const INPUT_HZ = 20;
 const STAT_INFO = [['STR', 'melee dmg'], ['DEX', 'crit/atk spd'], ['INT', 'magic dmg'], ['VIT', 'max health'], ['AGI', 'move speed']];
 
 export default class OnlineScene extends Phaser.Scene {
+  preload() {
+    this.load.image('town_inn', 'assets/town/inn.png');
+    this.load.image('town_blue_house', 'assets/town/blue_house.png');
+    this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
+    this.load.image('town_top_angle_house', 'assets/town/top_angle_house.png');
+  }
+  preload() {
+    this.load.image('town_inn', 'assets/town/inn.png');
+    this.load.image('town_blue_house', 'assets/town/blue_house.png');
+    this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
+  }
   constructor() { super('OnlineScene'); }
 
   create(data) {
@@ -144,30 +155,18 @@ export default class OnlineScene extends Phaser.Scene {
       g.fillStyle(0x5b7f43, 0.85); g.fillRect(796, 272, 52, 38);
       g.fillStyle(0x7a3430, 0.85); g.fillRect(662, 320, 82, 42);
       g.fillStyle(0x4a6d78, 0.85); g.fillRect(752, 320, 74, 42);
-      const houses = [[500,660,118,86,0x714334],[916,654,118,86,0x714334],[1010,374,124,92,0x6c4032],[330,360,118,84,0x6f4934],[1110,760,126,90,0x6b3b30],[260,700,122,88,0x70523a]];
-      for (const [x, y, w, h, roof] of houses) {
-        g.fillStyle(0xc7b28a, 0.96); g.fillRoundedRect(x, y, w, h, 14);
-        g.fillStyle(roof, 0.98); g.beginPath(); g.moveTo(x - 10, y + 20); g.lineTo(x + w / 2, y - 20); g.lineTo(x + w + 10, y + 20); g.lineTo(x + w - 6, y + 34); g.lineTo(x + 6, y + 34); g.closePath(); g.fillPath();
-        g.lineStyle(2, 0x4a3025, 0.35); g.strokeRoundedRect(x, y, w, h, 14);
-      }
       g.lineStyle(6, 0x5f452e, 0.9);
       for (let x = 120; x <= 340; x += 32) { g.lineBetween(x, 180, x, 230); }
       g.lineBetween(104, 196, 356, 196); g.lineBetween(104, 222, 356, 222);
       for (let x = 1150; x <= 1370; x += 32) { g.lineBetween(x, 856, x, 906); }
       g.lineBetween(1134, 872, 1386, 872); g.lineBetween(1134, 898, 1386, 898);
-      const trees = [[190,150],[260,138],[140,392],[118,690],[210,878],[420,160],[470,860],[575,930],[930,122],[1110,168],[1310,180],[1360,340],[1342,650],[1280,910],[1040,930],[884,866],[340,916],[1240,500],[1000,250],[460,300]];
-      for (const [x, y] of trees) {
-        g.fillStyle(0x5e3f22, 0.95); g.fillRect(x - 5, y + 12, 10, 20);
-        g.fillStyle(0x264b2e, 0.98); g.fillCircle(x, y, 24);
-        g.fillStyle(0x3d6b43, 0.98); g.fillCircle(x + 12, y - 8, 18);
-        g.fillStyle(0x6fa066, 0.4); g.fillCircle(x - 10, y - 12, 12);
-      }
       const patches = [[540,470,38,18],[952,468,36,18],[622,770,46,22],[866,760,42,20],[540,208,48,20],[1180,618,44,22]];
       for (const [x, y, w, h] of patches) {
         g.fillStyle(0x487b48, 0.55); g.fillEllipse(x, y, w, h);
         g.fillStyle(0xc9c36c, 0.35); g.fillEllipse(x + 6, y - 2, w * 0.35, h * 0.35);
       }
       g.lineStyle(8, 0x4f3523, 0.8); g.strokeRect(10, 10, z.size.w - 20, z.size.h - 20);
+      this.drawTownProps();
     } else {
       g.lineStyle(6, z.accent, 1); g.strokeRect(3, 3, z.size.w - 6, z.size.h - 6);
       g.lineStyle(1, z.accent, 0.4);
@@ -202,6 +201,243 @@ export default class OnlineScene extends Phaser.Scene {
     this.showBanner(z.name);
     this.localPos = null; // re-anchor to server pos after teleport
   }
+
+  drawTownProps() {
+    if (this.townPropLayer) this.townPropLayer.forEach((o) => o.g.destroy());
+    this.townPropLayer = [];
+
+    const houses = [
+      { type: 'inn', x: 770, y: 548, roof: 0x7c5a35, wall: 0xe1cfaa, trim: 0x694830, door: 0x6a432d, w: 198, h: 150, deck: true, chimney: true },
+      { type: 'cottageBlue', x: 1112, y: 438, roof: 0x4e88b7, wall: 0xe4dcc7, trim: 0x5c4f41, door: 0x744d35, w: 144, h: 108, chimney: true },
+      { type: 'tea', x: 520, y: 850, roof: 0x8c5393, wall: 0xd8b1c8, trim: 0x603857, door: 0x6d4059, w: 166, h: 126, deck: true, chimney: true },
+      { type: 'cottageBlue', x: 1152, y: 920, roof: 0x4d80b1, wall: 0xd8d3c4, trim: 0x4f473d, door: 0x6f4a34, w: 146, h: 110, chimney: true },
+    ];
+    for (const h of houses) this.spawnHouseProp(h);
+
+    const trees = [
+      [220, 240, 1.15], [174, 518, 1.0], [238, 910, 0.95], [432, 212, 0.95], [934, 180, 0.92],
+      [1260, 210, 0.95], [1324, 404, 1.0], [1304, 736, 0.95], [1008, 994, 0.92], [352, 1000, 0.95],
+    ];
+    for (const [x, y, s] of trees) this.spawnTreeProp({ x, y, scale: s });
+
+    const props = [
+      { kind: 'lamp', x: 116, y: 602 },
+      { kind: 'lamp', x: 1218, y: 786 },
+      { kind: 'barrel', x: 676, y: 474 }, { kind: 'barrel', x: 708, y: 474 },
+      { kind: 'crate', x: 1060, y: 502 }, { kind: 'barrel', x: 1094, y: 520 },
+      { kind: 'barrel', x: 454, y: 874 }, { kind: 'crate', x: 1200, y: 946 },
+      { kind: 'stall', x: 770, y: 366, cloth: 0xc45747 },
+      { kind: 'stall', x: 690, y: 362, cloth: 0xcfb15c },
+      { kind: 'sign', x: 614, y: 612 },
+      { kind: 'bush', x: 604, y: 474 }, { kind: 'bush', x: 930, y: 480 }, { kind: 'bush', x: 852, y: 812 },
+      { kind: 'bush', x: 1030, y: 618 }, { kind: 'bush', x: 582, y: 222 },
+    ];
+    for (const p of props) this.spawnTownDetail(p);
+  }
+
+  spawnHouseProp(data) {
+    const g = this.add.graphics();
+    this.townPropLayer.push({ kind: 'house', ...data, spriteKey: data.spriteKey || null, spriteScale: data.spriteScale || 1, spriteYOffset: data.spriteYOffset || 0, g });
+  }
+
+  spawnTreeProp(data) {
+    const g = this.add.graphics();
+    this.townPropLayer.push({ kind: 'tree', ...data, g });
+  }
+
+  spawnTownDetail(data) {
+    const g = this.add.graphics();
+    this.townPropLayer.push({ ...data, g });
+  }
+
+  updateTownProps() {
+    if (!this.townPropLayer || !this.townPropLayer.length) return;
+    for (const o of this.townPropLayer) {
+      const g = o.g;
+      const p = project(o.x, o.y);
+      g.clear();
+      g.setDepth(bodyDepth(o.x, o.y));
+
+      if (o.kind === 'house') {
+        if (o.spriteKey && this.textures.exists(o.spriteKey)) {
+          if (!o.sprite) {
+            o.sprite = this.add.image(p.x, p.y + (o.spriteYOffset || 0), o.spriteKey);
+            o.sprite.setOrigin(0.5, 1);
+          }
+          o.sprite.setPosition(p.x, p.y + (o.spriteYOffset || 0));
+          o.sprite.setScale(o.spriteScale || 1);
+          o.sprite.setDepth(bodyDepth(o.x, o.y));
+          g.clear();
+          g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 8, o.w * 0.76, 18);
+          continue;
+        } else if (o.sprite) {
+          o.sprite.destroy();
+          o.sprite = null;
+        }
+        const w = o.w, h = o.h;
+        const frontW = Math.round(w * 0.78);
+        const sideW = Math.round(w * 0.2);
+        const frontLeft = Math.round(p.x - frontW / 2);
+        const frontRight = frontLeft + frontW;
+        const sideRight = frontRight + sideW;
+        const baseY = Math.round(p.y);
+        const top = Math.round(baseY - h);
+        const wallTop = Math.round(top + h * 0.44);
+        const roofPeakY = Math.round(top - h * 0.14);
+        const roofLeftX = Math.round(frontLeft + frontW * 0.16);
+        const roofRightX = Math.round(frontRight - frontW * 0.14);
+        const eaveY = Math.round(wallTop + 8);
+        const roofLip = 10;
+        const doorW = Math.max(20, Math.round(w * 0.13));
+        const doorH = Math.max(30, Math.round(h * 0.24));
+        const wallShade = Phaser.Display.Color.IntegerToColor(o.wall).darken(10).color;
+        const wallDeep = Phaser.Display.Color.IntegerToColor(o.wall).darken(24).color;
+        const wallLight = Phaser.Display.Color.IntegerToColor(o.wall).lighten(10).color;
+        const roofDark = Phaser.Display.Color.IntegerToColor(o.roof).darken(20).color;
+        const roofSide = Phaser.Display.Color.IntegerToColor(o.roof).darken(34).color;
+        const trimDark = Phaser.Display.Color.IntegerToColor(o.trim).darken(10).color;
+
+        g.fillStyle(0x000000, 0.14); g.fillEllipse(p.x + sideW * 0.18, baseY + 7, w * 0.78, 20);
+
+        if (o.deck) {
+          g.fillStyle(0xc4955f, 1); g.fillRoundedRect(frontLeft - 18, baseY - 18, frontW + sideW + 34, 22, 6);
+          g.lineStyle(2, 0x7b5936, 0.45); g.strokeRoundedRect(frontLeft - 18, baseY - 18, frontW + sideW + 34, 22, 6);
+          g.lineStyle(1, 0x9f7748, 0.4);
+          for (let xx = frontLeft - 6; xx < sideRight + 14; xx += 14) g.lineBetween(xx, baseY - 16, xx, baseY + 2);
+        }
+
+        g.fillStyle(wallDeep, 1);
+        g.beginPath();
+        g.moveTo(frontRight, wallTop + 2);
+        g.lineTo(sideRight, wallTop - 8);
+        g.lineTo(sideRight, baseY);
+        g.lineTo(frontRight, baseY);
+        g.closePath();
+        g.fillPath();
+        g.lineStyle(2, trimDark, 0.5); g.strokePath();
+
+        g.fillStyle(o.wall, 1); g.fillRoundedRect(frontLeft, wallTop, frontW, baseY - wallTop, 8);
+        g.fillStyle(wallLight, 0.18); g.fillRect(frontLeft + 6, wallTop + 4, frontW - 12, 6);
+        g.fillStyle(wallShade, 1); g.fillRect(frontLeft + 8, wallTop + 12, frontW - 16, 10);
+        g.lineStyle(2, o.trim, 0.55); g.strokeRoundedRect(frontLeft, wallTop, frontW, baseY - wallTop, 8);
+
+        g.fillStyle(roofSide, 1);
+        g.beginPath();
+        g.moveTo(roofRightX, top + 14);
+        g.lineTo(sideRight + 8, top + 26);
+        g.lineTo(sideRight + 10, eaveY + 1);
+        g.lineTo(frontRight + 8, eaveY + roofLip - 2);
+        g.closePath();
+        g.fillPath();
+
+        g.fillStyle(o.roof, 1);
+        g.beginPath();
+        g.moveTo(frontLeft - 10, eaveY);
+        g.lineTo(roofLeftX, top + 14);
+        g.lineTo(p.x, roofPeakY);
+        g.lineTo(roofRightX, top + 14);
+        g.lineTo(frontRight + 8, eaveY);
+        g.closePath();
+        g.fillPath();
+
+        g.fillStyle(roofDark, 1);
+        g.beginPath();
+        g.moveTo(frontLeft - 12, eaveY + roofLip / 2);
+        g.lineTo(frontLeft - 2, eaveY - 1);
+        g.lineTo(frontRight + 2, eaveY - 1);
+        g.lineTo(frontRight + 12, eaveY + roofLip / 2);
+        g.lineTo(frontRight + 8, eaveY + roofLip);
+        g.lineTo(frontLeft - 8, eaveY + roofLip);
+        g.closePath();
+        g.fillPath();
+
+        g.lineStyle(2, roofDark, 0.55);
+        for (let yy = top + 18; yy < eaveY - 1; yy += 8) {
+          g.beginPath();
+          g.moveTo(roofLeftX - 2, yy);
+          g.lineTo(roofRightX + 2, yy);
+          g.strokePath();
+        }
+        g.lineStyle(2, 0xf6e6be, 0.22);
+        g.beginPath();
+        g.moveTo(roofLeftX + 8, top + 18);
+        g.lineTo(p.x, roofPeakY + 10);
+        g.lineTo(roofRightX - 8, top + 18);
+        g.strokePath();
+
+        if (o.chimney) {
+          const cx = Math.round(roofRightX - 6);
+          g.fillStyle(0x7f6d61, 1); g.fillRoundedRect(cx, top + 10, 16, 25, 3);
+          g.lineStyle(2, 0x58493f, 0.45); g.strokeRoundedRect(cx, top + 10, 16, 25, 3);
+          g.fillStyle(0xa89888, 1); g.fillRect(cx + 2, top + 8, 12, 4);
+        }
+
+        const doorX = Math.round(p.x - doorW / 2);
+        const doorY = Math.round(baseY - doorH - 4);
+        g.fillStyle(o.door, 1); g.fillRoundedRect(doorX, doorY, doorW, doorH, 5);
+        g.lineStyle(2, 0x2e1b12, 0.5); g.strokeRoundedRect(doorX, doorY, doorW, doorH, 5);
+        g.fillStyle(0x1d1010, 0.18); g.fillRect(doorX + 3, doorY + 4, doorW - 6, doorH - 8);
+        g.fillStyle(0xf0d66a, 0.45); g.fillCircle(doorX + doorW - 5, doorY + doorH / 2, 2);
+
+        const winW = Math.round(frontW * 0.18), winH = Math.round(h * 0.13);
+        const wy = wallTop + 18;
+        for (const wx of [Math.round(frontLeft + frontW * 0.26), Math.round(frontLeft + frontW * 0.74)]) {
+          g.fillStyle(0xd8f0ff, 1); g.fillRoundedRect(wx - winW / 2, wy, winW, winH, 4);
+          g.lineStyle(2, o.trim, 0.45); g.strokeRoundedRect(wx - winW / 2, wy, winW, winH, 4);
+          g.lineBetween(wx, wy + 2, wx, wy + winH - 2);
+          g.lineBetween(wx - winW / 2 + 2, wy + winH / 2, wx + winW / 2 - 2, wy + winH / 2);
+          g.fillStyle(0xffffff, 0.16); g.fillRect(wx - winW / 2 + 2, wy + 2, winW - 4, 3);
+        }
+
+        if (o.type === 'inn') {
+          g.fillStyle(0x745031, 1); g.fillRoundedRect(Math.round(p.x - 34), wallTop - 26, 68, 16, 5);
+          g.lineStyle(2, 0x3f2818, 0.55); g.strokeRoundedRect(Math.round(p.x - 34), wallTop - 26, 68, 16, 5);
+          g.fillStyle(0xd5b98c, 0.45); g.fillRect(Math.round(p.x - 28), wallTop - 22, 56, 4);
+        }
+      } else if (o.kind === 'tree') {
+        const s = o.scale || 1;
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 6, 58 * s, 18 * s);
+        g.fillStyle(0x6e492d, 1); g.fillRoundedRect(p.x - 7 * s, p.y - 48 * s, 14 * s, 36 * s, 5);
+        g.fillStyle(0x274d2d, 1); g.fillCircle(p.x, p.y - 82 * s, 26 * s);
+        g.fillStyle(0x35693c, 1); g.fillCircle(p.x - 20 * s, p.y - 64 * s, 20 * s);
+        g.fillStyle(0x35693c, 1); g.fillCircle(p.x + 20 * s, p.y - 64 * s, 20 * s);
+        g.fillStyle(0x508755, 1); g.fillCircle(p.x, p.y - 54 * s, 18 * s);
+        g.fillStyle(0x8ac17a, 0.24); g.fillCircle(p.x - 8 * s, p.y - 88 * s, 9 * s);
+      } else if (o.kind === 'lamp') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 4, 22, 8);
+        g.lineStyle(4, 0x51616c, 1); g.lineBetween(p.x, p.y - 38, p.x, p.y - 6);
+        g.fillStyle(0x87c7db, 0.95); g.fillCircle(p.x, p.y - 44, 8);
+        g.lineStyle(2, 0xd9f3ff, 0.4); g.strokeCircle(p.x, p.y - 44, 11);
+      } else if (o.kind === 'stall') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 5, 54, 14);
+        g.lineStyle(4, 0x714f31, 1); g.lineBetween(p.x - 18, p.y - 2, p.x - 18, p.y - 28); g.lineBetween(p.x + 18, p.y - 2, p.x + 18, p.y - 28);
+        g.fillStyle(o.cloth || 0xc45747, 1); g.fillRoundedRect(p.x - 24, p.y - 34, 48, 14, 5);
+        g.lineStyle(2, 0x5b2d2d, 0.45); g.strokeRoundedRect(p.x - 24, p.y - 34, 48, 14, 5);
+        g.fillStyle(0xd1b27b, 1); g.fillRect(p.x - 18, p.y - 16, 36, 12);
+      } else if (o.kind === 'sign') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 4, 24, 8);
+        g.lineStyle(4, 0x6b4b2e, 1); g.lineBetween(p.x, p.y - 28, p.x, p.y - 4);
+        g.fillStyle(0xd9c396, 1); g.fillRoundedRect(p.x - 14, p.y - 38, 28, 16, 4);
+        g.lineStyle(2, 0x6b4b2e, 0.6); g.strokeRoundedRect(p.x - 14, p.y - 38, 28, 16, 4);
+      } else if (o.kind === 'bush') {
+        g.fillStyle(0x000000, 0.1); g.fillEllipse(p.x, p.y + 4, 28, 10);
+        g.fillStyle(0x3f713f, 1); g.fillCircle(p.x - 8, p.y - 4, 10);
+        g.fillStyle(0x528951, 1); g.fillCircle(p.x + 2, p.y - 7, 11);
+        g.fillStyle(0x6aa463, 0.45); g.fillCircle(p.x + 7, p.y - 10, 6);
+      } else if (o.kind === 'barrel') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 3, 20, 8);
+        g.fillStyle(0x7f5a35, 1); g.fillRoundedRect(p.x - 8, p.y - 16, 16, 18, 5);
+        g.lineStyle(2, 0x47311f, 0.65); g.strokeRoundedRect(p.x - 8, p.y - 16, 16, 18, 5);
+        g.lineBetween(p.x - 8, p.y - 10, p.x + 8, p.y - 10); g.lineBetween(p.x - 8, p.y - 2, p.x + 8, p.y - 2);
+      } else if (o.kind === 'crate') {
+        g.fillStyle(0x000000, 0.12); g.fillEllipse(p.x, p.y + 3, 22, 8);
+        g.fillStyle(0x8a633e, 1); g.fillRoundedRect(p.x - 9, p.y - 15, 18, 16, 4);
+        g.lineStyle(2, 0x4f3824, 0.65); g.strokeRoundedRect(p.x - 9, p.y - 15, 18, 16, 4);
+        g.lineBetween(p.x - 9, p.y - 15, p.x + 9, p.y + 1); g.lineBetween(p.x + 9, p.y - 15, p.x - 9, p.y + 1);
+      }
+    }
+  }
+
 
   // Shrines: cyan obelisk once discovered (server-tracked), dim & locked until then.
   drawWaystones() {
@@ -385,6 +621,7 @@ export default class OnlineScene extends Phaser.Scene {
     }
 
     if (this.localPos) { const cam = this.cameras.main; const sp = project(this.localPos.x, this.localPos.y); cam.scrollX += (sp.x - cam.width / 2 - cam.scrollX) * 0.15; cam.scrollY += (sp.y - cam.height / 2 - cam.scrollY) * 0.15; }
+    this.updateTownProps();
   }
 
   nearestEnemy(snap, x, y) {

@@ -19,7 +19,7 @@ const ENABLED = (() => {
 // rotate 45° + squash Y → a 2:1 isometric diamond.
 const R = -Math.PI / 4;
 const SX = 1;
-const SY = 0.5;
+const SY = 0.72;
 const C = Math.cos(R), S = Math.sin(R);
 
 export const ISO = { enabled: ENABLED, R, SX, SY };

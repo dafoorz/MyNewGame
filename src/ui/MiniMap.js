@@ -1,10 +1,10 @@
 import { CONFIG } from '../config.js';
 
-// Always-visible minimap — right side, below the last button.
+// Always-visible minimap — top-right, beside the button stack.
 // Adjust MM_SIZE to resize.
 const MM_SIZE = 120;
 
-const BTN_LAST_Y = 330; // center y of the last (B) button
+const BTN_TOP_Y  = 30;  // center y of the first (C) button
 const BTN_R      = 22;
 
 export default class MiniMap {
@@ -14,8 +14,8 @@ export default class MiniMap {
     const s    = this.size;
 
     // Centre of the minimap square, in screen (game) coords.
-    this.cx = opts.x ?? (CONFIG.width - s / 2 - 6);
-    this.cy = opts.y ?? (BTN_LAST_Y + BTN_R + 16 + s / 2);
+    this.cx = opts.x ?? (CONFIG.width - 44 - 22 - 12 - s / 2);
+    this.cy = opts.y ?? (BTN_TOP_Y + s / 2);
 
     // A Container with scrollFactor(0) keeps everything fixed on screen —
     // the same pattern used by MapPanel, SettingsPanel, etc.

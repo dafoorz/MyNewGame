@@ -21,7 +21,7 @@ import {
   rollDrop, rollItem, rarityColor, mobGold, bossGold,
 } from '../items.js';
 import { buyCost, rollShopItem, upgradeCost, upgradeItem } from '../shop.js';
-import { applyIso, project, unproject, dirToWorld, zoneBounds } from '../iso.js';
+import { applyIso, project, unproject, dirToWorld, zoneBounds, bodyDepth } from '../iso.js';
 
 const STAT_INFO = [
   ['STR', 'melee damage'],
@@ -34,6 +34,17 @@ const STAT_INFO = [
 const PROJ_COLOR = { phys: 0xffe2a8, mag: 0x9be8ff };
 
 export default class GameScene extends Phaser.Scene {
+  preload() {
+    this.load.image('town_inn', 'assets/town/inn.png');
+    this.load.image('town_blue_house', 'assets/town/blue_house.png');
+    this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
+    this.load.image('town_top_angle_house', 'assets/town/top_angle_house.png');
+  }
+  preload() {
+    this.load.image('town_inn', 'assets/town/inn.png');
+    this.load.image('town_blue_house', 'assets/town/blue_house.png');
+    this.load.image('town_tea_shop', 'assets/town/tea_shop.png');
+  }
   constructor() {
     super('GameScene');
   }
@@ -243,8 +254,121 @@ export default class GameScene extends Phaser.Scene {
     g.fillRect(0, 0, z.size.w, z.size.h);
 
     if (this.zoneKey === 'town') {
-      g.lineStyle(8, 0x4f3523, 0.55);
+      // Riverwood: hand-painted readable hub layout with roads, grass, river edge,
+      // plaza, market area, and decorative trees that survive the iso projection.
+      g.fillStyle(0x25472d, 1);
+      g.fillRect(0, 0, z.size.w, z.size.h);
+
+      // outer meadow bands
+      g.fillStyle(0x2e5a38, 1); g.fillRect(34, 34, z.size.w - 68, z.size.h - 68);
+      g.fillStyle(0x3a6a42, 0.95); g.fillRect(86, 86, z.size.w - 172, z.size.h - 172);
+
+      // river/cove edge on the north-west side
+      g.fillStyle(0x24505f, 0.95);
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(420, 0);
+      g.lineTo(300, 110);
+      g.lineTo(220, 210);
+      g.lineTo(110, 260);
+      g.lineTo(0, 300);
+      g.closePath();
+      g.fillPath();
+      g.fillStyle(0x3d8795, 0.9);
+      g.beginPath();
+      g.moveTo(0, 34);
+      g.lineTo(362, 34);
+      g.lineTo(266, 126);
+      g.lineTo(198, 198);
+      g.lineTo(100, 244);
+      g.lineTo(0, 278);
+      g.closePath();
+      g.fillPath();
+
+      // central roads
+      g.lineStyle(72, 0x947048, 1); g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(70, 525);
+      g.lineTo(330, 525);
+      g.lineTo(520, 540);
+      g.lineTo(760, 560);
+      g.lineTo(980, 540);
+      g.lineTo(1200, 530);
+      g.lineTo(1430, 530);
+      g.strokePath();
+
+      g.lineStyle(64, 0x8a6840, 1);
+      g.beginPath();
+      g.moveTo(750, 120);
+      g.lineTo(748, 260);
+      g.lineTo(752, 420);
+      g.lineTo(760, 560);
+      g.lineTo(742, 700);
+      g.lineTo(720, 860);
+      g.lineTo(706, 980);
+      g.strokePath();
+
+      // road edging + highlights
+      g.lineStyle(36, 0x8d6943, 0.34);
+      g.beginPath();
+      g.moveTo(90, 525); g.lineTo(1430, 525); g.strokePath();
+      g.beginPath();
+      g.moveTo(752, 120); g.lineTo(720, 980); g.strokePath();
+      g.lineStyle(16, 0xb38a57, 0.68);
+      g.beginPath();
+      g.moveTo(90, 525); g.lineTo(1430, 525); g.strokePath();
+      g.beginPath();
+      g.moveTo(752, 120); g.lineTo(720, 980); g.strokePath();
+      g.lineStyle(4, 0xd3b17a, 0.45);
+      g.beginPath();
+      g.moveTo(90, 516); g.lineTo(1430, 516); g.strokePath();
+      g.beginPath();
+      g.moveTo(746, 120); g.lineTo(714, 980); g.strokePath();
+
+      // riverbank polish
+      g.fillStyle(0x7dc3da, 0.28); g.fillRect(1212, 0, 250, z.size.h);
+      g.lineStyle(6, 0xe8e1a2, 0.55); g.beginPath(); g.moveTo(1200, 0); g.lineTo(1200, z.size.h); g.strokePath();
+      g.lineStyle(2, 0xffffff, 0.16);
+      for (let yy = 60; yy < z.size.h; yy += 100) { g.lineBetween(1230, yy, 1410, yy + 26); }
+
+      // plaza around waystone
+      g.fillStyle(0x7e684a, 1); g.fillCircle(750, 560, 126);
+      g.fillStyle(0x99815f, 1); g.fillCircle(750, 560, 90);
+      g.lineStyle(5, 0xcdb58a, 0.7);
+      for (let r in [52, 88, 122]) {}
+      [52, 88, 122].forEach((r) => g.strokeCircle(750, 560, r));
+
+      // market square near the shop
+      g.fillStyle(0x6d5338, 0.95); g.fillRoundedRect(620, 255, 260, 156, 18);
+      g.lineStyle(4, 0xb79058, 0.8); g.strokeRoundedRect(620, 255, 260, 156, 18);
+      g.fillStyle(0xb5443c, 0.85); g.fillRect(650, 272, 74, 38);
+      g.fillStyle(0xcfb15c, 0.85); g.fillRect(730, 272, 60, 38);
+      g.fillStyle(0x5b7f43, 0.85); g.fillRect(796, 272, 52, 38);
+      g.fillStyle(0x7a3430, 0.85); g.fillRect(662, 320, 82, 42);
+      g.fillStyle(0x4a6d78, 0.85); g.fillRect(752, 320, 74, 42);
+
+
+      // fences toward exits
+      g.lineStyle(6, 0x5f452e, 0.9);
+      for (let x = 120; x <= 340; x += 32) { g.lineBetween(x, 180, x, 230); }
+      g.lineBetween(104, 196, 356, 196); g.lineBetween(104, 222, 356, 222);
+      for (let x = 1150; x <= 1370; x += 32) { g.lineBetween(x, 856, x, 906); }
+      g.lineBetween(1134, 872, 1386, 872); g.lineBetween(1134, 898, 1386, 898);
+
+
+      // flower patches / visual breakup
+      const patches = [
+        [540, 470, 38, 18], [952, 468, 36, 18], [622, 770, 46, 22], [866, 760, 42, 20], [540, 208, 48, 20], [1180, 618, 44, 22],
+      ];
+      for (const [x, y, w, h] of patches) {
+        g.fillStyle(0x487b48, 0.55); g.fillEllipse(x, y, w, h);
+        g.fillStyle(0xc9c36c, 0.35); g.fillEllipse(x + 6, y - 2, w * 0.35, h * 0.35);
+      }
+
+      g.lineStyle(8, 0x4f3523, 0.8);
       g.strokeRect(10, 10, z.size.w - 20, z.size.h - 20);
+
+      this.drawTownProps();
       return;
     }
 
@@ -1118,6 +1242,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.world.sort('depth'); // painter's order for the iso world layer
     this.checkPortals();
+    this.updateTownProps();
     this.checkWaystones();
     this.centerCamera(false);
     this.updateHud();
